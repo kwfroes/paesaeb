@@ -2013,6 +2013,62 @@
         }
     };
 
+    
+    window.editarSolicitacao = function(id) {
+        const s = solicitacoes.find(x => String(x.id) === String(id));
+        if (!s) return;
+
+        const modalHtml = `
+        <div class="modal-backdrop" onclick="fecharModal()">
+            <div class="modal-content" onclick="event.stopPropagation()">
+            <div class="modal-header" style="color: var(--azul-900);">Editar Solicitação</div>
+            <div class="modal-body">
+                <form onsubmit="salvarEdicaoSolicitacao(event, '${id}')">
+                <div class="form-group"><label>Nome Completo</label><input id="editNome" type="text" required value="${s.nome}" /></div>
+                <div class="form-group"><label>E-mail Institucional</label><input id="editEmail" type="email" required value="${s.email}" /></div>
+                <div class="form-group"><label>CPF</label><input id="editCpf" type="text" required value="${s.cpf}" oninput="this.value = maskCPF(this.value)" /></div>
+                <div class="form-group"><label>Setor / Coordenação</label><input id="editSetor" type="text" required value="${s.setor}" /></div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" onclick="fecharModal()">Cancelar</button>
+                    <button type="submit" class="btn btn-primary">Salvar Alterações</button>
+                </div>
+                </form>
+            </div>
+            </div>
+        </div>
+        `;
+        document.getElementById('modalContainer').innerHTML = modalHtml;
+        document.getElementById('modalContainer').classList.remove('hidden');
+    };
+
+    
+    window.salvarEdicaoSolicitacao = async function(e, id) {
+        e.preventDefault();
+        
+        const dadosAtualizados = {
+            nome: document.getElementById('editNome').value,
+            email: document.getElementById('editEmail').value,
+            cpf: document.getElementById('editCpf').value,
+            setor: document.getElementById('editSetor').value
+        };
+
+        const { error } = await supabaseClient
+            .from('solicitacoes_acesso')
+            .update(dadosAtualizados)
+            .eq('id', id);
+
+        if (error) {
+            toast(`Erro ao salvar: ${error.message}`);
+            return;
+        }
+
+        toast('Solicitação atualizada com sucesso!');
+        registrarLog('Edição', `Solicitação de acesso editada: ${dadosAtualizados.nome}`);
+        fecharModal();
+        await carregarBancoSupabase();
+        renderUsuarios(); // Recarrega a tabela de solicitações
+    };
+
     window.aprovarSolicitacao = async function(e, id) {
             const btn = e.currentTarget;
             btn.innerText = '⏳ Aprovando...';
@@ -2122,6 +2178,9 @@ const renderTableSolicitacoes = () => {
                 <td>${s.cpf || '-'}</td>
                 <td>${s.setor || '-'}</td>
                 <td style="display: flex; gap: 8px;">
+                    <button class="small-btn action" style="padding: 8px; display: inline-flex; align-items: center;" title="Editar Solicitação" onclick="editarSolicitacao('${s.id}')">
+                        <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+                    </button>
                     <button class="small-btn success" style="padding: 8px; display: inline-flex; align-items: center;" title="Aprovar Solicitação" onclick="aprovarSolicitacao(event, '${s.id}')">
                         ${svgAprovar}
                     </button>
