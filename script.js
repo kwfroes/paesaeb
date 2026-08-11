@@ -2097,7 +2097,7 @@
             
             await carregarBancoSupabase(); // Recarrega os dados (tira o pendente da tela)
             renderUsuarios();
-        };
+    };
 
     window.rejeitarSolicitacao = async function(id) {
         if(!confirm('Tem certeza que deseja rejeitar e excluir essa solicitação de acesso?')) return;
@@ -2120,7 +2120,7 @@
         
         await carregarBancoSupabase();
         renderUsuarios();
-        };
+    };
 
     function renderUsuarios() {
     const page = document.getElementById('usuariosPage');
@@ -2208,7 +2208,7 @@ const renderTableSolicitacoes = () => {
         <div class="section-grid">
             <div class="card">
             <h3 class="section-title">Editar Perfil de Usuário</h3>
-            <p style="font-size:12px;color:var(--cinza-600)">Os usuários agora solicitam acesso via tela inicial. Utilize este formulário apenas para atualizar dados de quem já está aprovado.</p>
+            <p style="font-size:12px;color:var(--cinza-600)">Atualização de dados de usuários existentes</p>
             <form id="usuarioForm">
                 <div class="form-group"><label>Nome Completo *</label><input name="nome" required placeholder="Nome do servidor" /></div>
                 <div class="form-group"><label>E-mail Institucional *</label><input type="email" name="email" required placeholder="email@saeb.ba.gov.br" /></div>
