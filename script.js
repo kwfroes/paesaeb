@@ -76,26 +76,111 @@
         return v;
     };
 
+    // Substitua a função window.solicitarAcesso inteira por isto:
     window.solicitarAcesso = function(e) {
         e.preventDefault();
-        alert('Entre em contato com o Gestor da sua Diretoria para habilitar o acesso.');
+        const modalHtml = `
+        <div class="modal-backdrop" onclick="fecharModal()">
+            <div class="modal-content" onclick="event.stopPropagation()">
+            <div class="modal-header" style="color: var(--azul-900);">Solicitar Acesso</div>
+            <div class="modal-body">
+                <p style="margin-top: 0; color: var(--cinza-600); font-size: 13px;">Preencha os dados abaixo.</p>
+                <form onsubmit="enviarSolicitacaoAcesso(event)">
+                <div class="form-group"><label>Nome Completo *</label><input id="solicNome" type="text" required placeholder="Nome completo do servidor" /></div>
+                <div class="form-group"><label>E-mail Institucional *</label><input id="solicEmail" type="email" required placeholder="email@saeb.ba.gov.br" /></div>
+                <div class="form-group"><label>CPF *</label><input id="solicCpf" type="text" required placeholder="000.000.000-00" oninput="this.value = maskCPF(this.value)" /></div>
+                <div class="form-group"><label>Diretoria / Coordenação *</label><input id="solicSetor" type="text" required placeholder= "Diretoria/Coordenação" /></div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" onclick="fecharModal()">Cancelar</button>
+                    <button type="submit" class="btn btn-primary">Enviar Solicitação</button>
+                </div>
+                </form>
+            </div>
+            </div>
+        </div>
+        `;
+        document.getElementById('modalContainer').innerHTML = modalHtml;
+        document.getElementById('modalContainer').classList.remove('hidden');
     };
 
+
+    window.enviarSolicitacaoAcesso = async function(e) {
+        e.preventDefault();
+        const nome = document.getElementById('solicNome').value.trim();
+        const email = document.getElementById('solicEmail').value.trim();
+        const cpf = document.getElementById('solicCpf').value.trim();
+        const setor = document.getElementById('solicSetor').value.trim();
+
+        if(!supabaseClient) {
+            toast('Conexão com o banco falhou.');
+            return;
+        }
+
+        // Altera o estado do botão para dar feedback visual
+        const btnSubmit = e.target.querySelector('button[type="submit"]');
+        const textoOriginal = btnSubmit.innerText;
+        btnSubmit.innerText = 'Enviando...';
+        btnSubmit.disabled = true;
+
+        const { error } = await supabaseClient.from('solicitacoes_acesso').insert([{
+            nome, email, cpf, setor
+        }]);
+
+        if (error) {
+            btnSubmit.innerText = textoOriginal;
+            btnSubmit.disabled = false;
+            
+            // Modal de Erro
+            const erroHtml = `
+              <div class="modal-backdrop" onclick="fecharModal()">
+                <div class="modal-content" onclick="event.stopPropagation()" style="text-align: center; max-width: 400px;">
+                  <div style="font-size: 40px; margin-bottom: 16px;">❌</div>
+                  <h3 style="color: var(--vermelho); margin-top: 0;">Erro ao solicitar</h3>
+                  <p style="color: var(--cinza-700); font-size: 14px; margin-bottom: 24px;">${error.message}</p>
+                  <button class="btn btn-secondary btn-full" onclick="fecharModal()">Fechar</button>
+                </div>
+              </div>
+            `;
+            document.getElementById('modalContainer').innerHTML = erroHtml;
+        } else {
+            // Modal de Sucesso
+            const sucessoHtml = `
+              <div class="modal-backdrop" onclick="fecharModal()">
+                <div class="modal-content" onclick="event.stopPropagation()" style="text-align: center; max-width: 400px;">
+                  <div style="font-size: 40px; margin-bottom: 16px;">✔️</div>
+                  <h3 style="color: var(--azul-900); margin-top: 0;">Solicitação Enviada!</h3>
+                  <p style="color: var(--cinza-700); font-size: 14px; margin-bottom: 24px;">
+                    Sua solicitação foi enviada com sucesso! Aguarde a aprovação do administrador. Você receberá sua senha temporária por e-mail.
+                  </p>
+                  <button class="btn btn-primary btn-full" onclick="fecharModal()">Entendi</button>
+                </div>
+              </div>
+            `;
+            document.getElementById('modalContainer').innerHTML = sucessoHtml;
+        }
+    };
+
+// Modal para o usuário redefinir a própria senha (na tela de login)
     window.abrirEsqueceuSenha = function(e) {
         e.preventDefault();
+        
+        // Se o usuário já tiver digitado o email no campo de login, a gente já puxa ele
+        const emailPreenchido = document.getElementById('loginEmail').value.trim();
+
         const modalHtml = `
           <div class="modal-backdrop" onclick="fecharModal()">
-            <div class="modal-content" onclick="event.stopPropagation()">
+            <div class="modal-content" onclick="event.stopPropagation()" style="max-width: 400px;">
               <div class="modal-header" style="color: var(--azul-900);">Recuperação de Senha</div>
               <div class="modal-body">
-                <p style="margin-top: 0; color: var(--cinza-600); font-size: 13px;">Informe seus dados abaixo para processarmos a troca de senha.</p>
-                <form onsubmit="event.preventDefault(); alert('Solicitação de troca de senha enviada com sucesso!'); fecharModal();">
-                  <div class="form-group"><label>Nome Completo</label><input type="text" required placeholder="Nome do servidor" /></div>
-                  <div class="form-group"><label>Data de Nascimento</label><input type="date" required /></div>
-                  <div class="form-group"><label>CPF</label><input type="text" required placeholder="000.000.000-00" oninput="this.value = maskCPF(this.value)" /></div>
+                <p style="margin-top: 0; color: var(--cinza-600); font-size: 13px;">Informe seu e-mail cadastrado para redefinir.</p>
+                <form onsubmit="enviarRecuperacaoSenha(event)">
+                  <div class="form-group">
+                    <label>E-mail Institucional</label>
+                    <input id="recEmail" type="email" required value="${emailPreenchido}" placeholder="email@saeb.ba.gov.br" />
+                  </div>
                   <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" onclick="fecharModal()">Cancelar</button>
-                    <button type="submit" class="btn btn-primary">Confirmar</button>
+                    <button type="submit" id="btnRecuperar" class="btn btn-primary">Enviar Link</button>
                   </div>
                 </form>
               </div>
@@ -104,6 +189,43 @@
         `;
         document.getElementById('modalContainer').innerHTML = modalHtml;
         document.getElementById('modalContainer').classList.remove('hidden');
+    };
+
+    // Função que chama a Edge Function para o usuário na tela de Login
+    window.enviarRecuperacaoSenha = async function(e) {
+        e.preventDefault();
+        const email = document.getElementById('recEmail').value.trim();
+        const btn = document.getElementById('btnRecuperar');
+
+        btn.innerText = 'Enviando...';
+        btn.disabled = true;
+
+        const { error } = await supabaseClient.functions.invoke('recuperar-senha', {
+            body: { email: email }
+        });
+
+        if (error) {
+            btn.innerText = 'Enviar Link';
+            btn.disabled = false;
+            return alert(`Erro ao enviar: ${error.message}`);
+        }
+
+        fecharModal();
+        toast('Link de recuperação enviado para o seu e-mail!');
+    };
+
+    // Atualização da função do painel Master para forçar a troca de senha (usa a mesma Edge Function)
+    window.alterarSenha = async function(id) {
+        if(getPerfil() !== 'Master') { toast('Acesso restrito!'); return; }
+        const u = usuarios.find(x => String(x.id) === String(id));
+        if(u) {
+            const { error } = await supabaseClient.functions.invoke('recuperar-senha', {
+                body: { email: u.email }
+            });
+            if (error) return toast(`Falha: ${error.message}`);
+            registrarLog('Usuário', `Recuperação de senha enviada para ${u.nome}`);
+            toast('Recuperação enviado por e-mail!');
+        }
     };
 
     window.verAnexos = async function(id) {
@@ -163,6 +285,7 @@
     };
 
     let demandas = [];
+    let solicitacoes = [];
     let usuarios = [];
     let logsAudit = [];
     let idsDemandasCarregadas = new Set();
@@ -193,19 +316,27 @@
 
     async function carregarBancoSupabase() {
         if (!supabaseClient || !sessaoAtual) return;
-        const logQuery = getPerfil() === 'Master'
-          ? supabaseClient.from('logs_auditoria').select('*').order('created_at', { ascending: false }).limit(500)
-          : Promise.resolve({ data: [], error: null });
-        const [demRes, usuRes, logRes] = await Promise.all([
+        const isMaster = getPerfil() === 'Master';
+        const logQuery = isMaster 
+        ? supabaseClient.from('logs_auditoria').select('*').order('created_at', { ascending: false }).limit(500)
+        : Promise.resolve({ data: [], error: null });
+     
+        const solicitacoesQuery = isMaster
+        ? supabaseClient.from('solicitacoes_acesso').select('*').eq('status', 'Pendente').order('created_at', { ascending: false })
+        : Promise.resolve({ data: [], error: null });
+
+        const [demRes, usuRes, logRes, solRes] = await Promise.all([
           supabaseClient.from('demandas').select('*').order('created_at', { ascending: false }),
           supabaseClient.from('profiles').select('*').order('nome'),
-          logQuery
+          logQuery,
+          solicitacoesQuery
         ]);
-        const erro = demRes.error || usuRes.error || logRes.error;
+        const erro = demRes.error || usuRes.error || logRes.error || solRes.error;
         if (erro) throw erro;
         demandas = (demRes.data || []).map(linhaParaDemanda);
         idsDemandasCarregadas = new Set(demandas.map(d => String(d.id)));
         usuarios = usuRes.data || [];
+        solicitacoes = solRes.data || [];
         logsAudit = (logRes.data || []).map(l => ({
           id: l.id, dataHora: new Date(l.created_at).toLocaleString('pt-BR'),
           usuario: l.usuario_email || 'Usuário', acao: l.acao, detalhe: l.detalhe
@@ -1863,7 +1994,7 @@
             const { error } = await supabaseClient.auth.resetPasswordForEmail(u.email, { redirectTo: location.href });
             if (error) return toast(`Falha: ${error.message}`);
             registrarLog('Usuário', `Recuperação de senha enviada para ${u.nome}`);
-            toast('Link seguro de recuperação enviado por e-mail.');
+            toast('Recuperação de senha enviada por e-mail.');
         }
     };
 
@@ -1882,49 +2013,162 @@
         }
     };
 
-    function renderUsuarios() {
-      const page = document.getElementById('usuariosPage');
-      usuarioEditandoId = null; // reseta ao renderizar
-      
-      const renderTableUsuarios = () => {
-         return usuarios.map(u => `
-         <tr>
-            <td><strong>${u.nome}</strong></td>
-            <td>${u.email}</td>
-            <td>${u.cpf || '-'}</td>
-            <td><span class="tag tag-status">${u.perfil}</span></td>
-            <td><span class="tag ${u.status === 'Ativo' ? 'tag-concluida' : 'tag-atrasada'}">${u.status}</span></td>
-            <td>
-                <button class="small-btn action" onclick="editarUsuario('${u.id}')">✏️ Editar</button>
-                <button class="small-btn ${u.status === 'Ativo' ? 'danger' : 'success'}" onclick="toggleUserStatus('${u.id}')">${u.status === 'Ativo' ? 'Inativar' : 'Ativar'}</button>
-                <button class="small-btn action" onclick="alterarSenha('${u.id}')">Redefinir Senha</button>
-            </td>
-         </tr>`).join('');
-      };
+    window.aprovarSolicitacao = async function(e, id) {
+            const btn = e.currentTarget;
+            btn.innerText = '⏳ Aprovando...';
+            btn.disabled = true;
 
-      page.innerHTML = `
+            // 1. Busca os dados da solicitação para pegar o nome
+            const solicitacao = solicitacoes.find(s => String(s.id) === String(id));
+            const nomeUsuario = solicitacao ? solicitacao.nome : 'Usuário desconhecido';
+
+            // Dispara a Edge Function criada no Supabase
+            const { data, error } = await supabaseClient.functions.invoke('aprovar-cadastro', {
+                body: { solicitacao_id: id, perfil_escolhido: 'Usuário' }
+            });
+
+            if (error) {
+                toast(`Falha na aprovação: ${error.message}`);
+                btn.innerText = '✔️ Aprovar';
+                btn.disabled = false;
+                return;
+            }
+
+            toast('Acesso aprovado! E-mail com a senha temporária foi enviado.');
+            
+            // 2. Grava o log com o NOME do usuário em vez do ID
+            registrarLog('Aprovação de Acesso', `O cadastro do usuário ${nomeUsuario} foi aprovado.`);
+            
+            await carregarBancoSupabase(); // Recarrega os dados (tira o pendente da tela)
+            renderUsuarios();
+        };
+
+    window.rejeitarSolicitacao = async function(id) {
+        if(!confirm('Tem certeza que deseja rejeitar e excluir essa solicitação de acesso?')) return;
+        
+        // 1. Busca os dados da solicitação para pegar o nome
+        const solicitacao = solicitacoes.find(s => String(s.id) === String(id));
+        const nomeUsuario = solicitacao ? solicitacao.nome : 'Usuário desconhecido';
+        
+        const { error } = await supabaseClient
+            .from('solicitacoes_acesso')
+            .delete()
+            .eq('id', id);
+            
+        if (error) return toast(`Erro ao rejeitar: ${error.message}`);
+        
+        toast('Solicitação rejeitada e excluída com sucesso.');
+        
+        // 2. Grava o log com o NOME da pessoa excluída
+        registrarLog('Rejeição de Acesso', `A solicitação de acesso de ${nomeUsuario} foi excluída.`);
+        
+        await carregarBancoSupabase();
+        renderUsuarios();
+        };
+
+    function renderUsuarios() {
+    const page = document.getElementById('usuariosPage');
+    usuarioEditandoId = null; 
+    
+    const renderTableUsuarios = () => {
+        return usuarios.map(u => {
+            const isAtivo = u.status === 'Ativo';
+            
+            // Ícones SVG
+            const svgEditar = `<svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>`;
+            const svgSenha = `<svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"></path></svg>`;
+            const svgInativar = `<svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"></line></svg>`;
+            const svgAtivar = `<svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>`;
+
+            const svgStatus = isAtivo ? svgInativar : svgAtivar;
+            const btnClassStatus = isAtivo ? 'danger' : 'success';
+            const titleStatus = isAtivo ? 'Inativar Usuário' : 'Ativar Usuário';
+
+            return `
+            <tr>
+                <td><strong>${u.nome}</strong></td>
+                <td>${u.email}</td>
+                <td>${u.cpf || '-'}</td>
+                <td><span class="tag tag-status">${u.perfil}</span></td>
+                <td><span class="tag ${isAtivo ? 'tag-concluida' : 'tag-atrasada'}">${u.status}</span></td>
+                <td style="display: flex; gap: 8px;">
+                    <button class="small-btn action" style="padding: 8px; display: inline-flex; align-items: center;" title="Editar Perfil" onclick="editarUsuario('${u.id}')">
+                        ${svgEditar}
+                    </button>
+                    <button class="small-btn ${btnClassStatus}" style="padding: 8px; display: inline-flex; align-items: center;" title="${titleStatus}" onclick="toggleUserStatus('${u.id}')">
+                        ${svgStatus}
+                    </button>
+                    <button class="small-btn action" style="padding: 8px; display: inline-flex; align-items: center;" title="Redefinir Senha" onclick="alterarSenha('${u.id}')">
+                        ${svgSenha}
+                    </button>
+                </td>
+            </tr>`;
+        }).join('');
+    };
+
+    // NOVA FUNÇÃO: Renderiza a tabela da Sala de Espera
+const renderTableSolicitacoes = () => {
+        if (solicitacoes.length === 0) return '<tr><td colspan="5" style="text-align:center; color: var(--cinza-500);">Nenhuma solicitação de acesso pendente.</td></tr>';
+        
+        return solicitacoes.map(s => {
+            // Ícones SVG para Aprovar e Rejeitar
+            const svgAprovar = `<svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>`;
+            const svgRejeitar = `<svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>`;
+
+            return `
+            <tr>
+                <td><strong>${s.nome}</strong></td>
+                <td>${s.email}</td>
+                <td>${s.cpf || '-'}</td>
+                <td>${s.setor || '-'}</td>
+                <td style="display: flex; gap: 8px;">
+                    <button class="small-btn success" style="padding: 8px; display: inline-flex; align-items: center;" title="Aprovar Solicitação" onclick="aprovarSolicitacao(event, '${s.id}')">
+                        ${svgAprovar}
+                    </button>
+                    <button class="small-btn danger" style="padding: 8px; display: inline-flex; align-items: center;" title="Rejeitar Solicitação" onclick="rejeitarSolicitacao('${s.id}')">
+                        ${svgRejeitar}
+                    </button>
+                </td>
+            </tr>`;
+        }).join('');
+    };
+
+    page.innerHTML = `
+        <!-- TABELA 1: SALA DE ESPERA (Novos Cadastros) -->
+        <div class="section-grid" style="grid-template-columns: 1fr; margin-bottom: 24px;">
+            <div class="card" style="border-left: 4px solid var(--amarelo);">
+            <h3 class="section-title">Solicitações Pendentes</h3>
+            <p style="font-size:12px;color:var(--cinza-600); margin-top:-10px; margin-bottom:15px;">Ao aprovar, o sistema criará o usuário e enviará a senha temporária para o e-mail automaticamente.</p>
+            <div class="table-wrap">
+                <table><thead><tr><th>Nome</th><th>E-mail</th><th>CPF</th><th>Setor</th><th>Ações</th></tr></thead><tbody id="solicitacoesTableBody">${renderTableSolicitacoes()}</tbody></table>
+            </div>
+            </div>
+        </div>
+
+        <!-- CARDS EXISTENTES: Edição e Tabela Geral -->
         <div class="section-grid">
             <div class="card">
-              <h3 class="section-title">Editar Perfil de Usuário</h3>
-              <p style="font-size:12px;color:var(--cinza-600)">Crie novos acessos em Authentication &gt; Users no painel Supabase. O perfil será criado automaticamente; depois edite-o aqui.</p>
-              <form id="usuarioForm">
+            <h3 class="section-title">Editar Perfil de Usuário</h3>
+            <p style="font-size:12px;color:var(--cinza-600)">Os usuários agora solicitam acesso via tela inicial. Utilize este formulário apenas para atualizar dados de quem já está aprovado.</p>
+            <form id="usuarioForm">
                 <div class="form-group"><label>Nome Completo *</label><input name="nome" required placeholder="Nome do servidor" /></div>
                 <div class="form-group"><label>E-mail Institucional *</label><input type="email" name="email" required placeholder="email@saeb.ba.gov.br" /></div>
                 <div class="form-group"><label>CPF</label><input type="text" name="cpf" placeholder="000.000.000-00" oninput="this.value = maskCPF(this.value)" /></div>
                 <div class="form-group"><label>Perfil de Acesso</label><select name="perfil"><option value="Master">Master</option><option value="Usuário">Usuário</option></select></div>
-                <button type="submit" id="btnSubmitUsuario" class="btn btn-primary btn-full">Salvar Usuário</button>
-              </form>
+                <button type="submit" id="btnSubmitUsuario" class="btn btn-primary btn-full">Salvar Alterações</button>
+            </form>
             </div>
+            
             <div class="card">
-              <h3 class="section-title">Usuários Cadastrados</h3>
-              <div class="table-wrap">
+            <h3 class="section-title">Usuários Cadastrados</h3>
+            <div class="table-wrap">
                 <table><thead><tr><th>Nome</th><th>E-mail</th><th>CPF</th><th>Perfil</th><th>Status</th><th>Ações</th></tr></thead><tbody id="usuariosTableBody">${renderTableUsuarios()}</tbody></table>
-              </div>
+            </div>
             </div>
         </div>
-      `;
+    `;
 
-      document.getElementById('usuarioForm').addEventListener('submit', (e) => {
+    document.getElementById('usuarioForm').addEventListener('submit', (e) => {
         e.preventDefault();
         const data = Object.fromEntries(new FormData(e.target).entries());
         
@@ -1936,16 +2180,14 @@
                 toast('Usuário atualizado com sucesso!');
             }
             usuarioEditandoId = null;
-            document.getElementById('btnSubmitUsuario').innerText = 'Salvar Usuário';
+            document.getElementById('btnSubmitUsuario').innerText = 'Salvar Alterações';
+            salvarBancoLocal();
+            document.getElementById('usuariosTableBody').innerHTML = renderTableUsuarios();
+            e.target.reset();
         } else {
-            toast('Crie o acesso primeiro em Authentication > Users no painel Supabase.');
-            return;
+            toast('Selecione um usuário na tabela clicando em Editar antes de salvar.');
         }
-        
-        salvarBancoLocal();
-        document.getElementById('usuariosTableBody').innerHTML = renderTableUsuarios();
-        e.target.reset();
-      });
+    });
     }
 
     async function iniciarSessao(session) {
@@ -1972,15 +2214,6 @@
       navegar('dashboard');
     }
 
-    // Recuperação segura: o Supabase envia o link ao e-mail informado.
-    window.abrirEsqueceuSenha = async function(e) {
-      e.preventDefault();
-      if (!supabaseClient) return toast('Configure o Supabase antes de recuperar a senha.');
-      const email = document.getElementById('loginEmail').value.trim();
-      if (!email) return toast('Informe seu e-mail no campo acima.');
-      const { error } = await supabaseClient.auth.resetPasswordForEmail(email, { redirectTo: location.href });
-      toast(error ? `Falha: ${error.message}` : 'Link de recuperação enviado por e-mail.');
-    };
 
     async function inicializarSupabase() {
       if (!supabaseClient) {

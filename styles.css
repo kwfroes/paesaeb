@@ -63,13 +63,21 @@
     .form-group { margin-bottom: 16px; text-align: left; }
     label { display: block; font-size: 13px; font-weight: 700; color: var(--cinza-700); margin-bottom: 7px; }
 
-    /* Reutilizando inputs nas páginas internas */
-    .page input, .page select, .page textarea { width: 100%; border: 1px solid var(--cinza-300); border-radius: 8px; padding: 10px 12px; font-size: 14px; outline: none; background: white; color: var(--cinza-950); transition: background-color 0.2s; }
-    .page input[type="file"] { padding: 8px; background: white; cursor: pointer; }
-    .page input:focus, .page select:focus, .page textarea:focus { border-color: var(--azul-accent); box-shadow: 0 0 0 3px rgba(0, 86, 179, .16); }
-    .page input:disabled, .page select:disabled, .page textarea:disabled { background-color: var(--cinza-200); color: var(--cinza-600); cursor: not-allowed; }
-    .page select[multiple] { height: auto; min-height: 80px; }
-    .page textarea { min-height: 100px; resize: vertical; }
+    /* Reutilizando inputs nas páginas internas e nos modais */
+    .page input, .page select, .page textarea,
+    .modal-body input, .modal-body select, .modal-body textarea { width: 100%; border: 1px solid var(--cinza-300); border-radius: 8px; padding: 10px 12px; font-size: 14px; outline: none; background: white; color: var(--cinza-950); transition: background-color 0.2s; }
+
+    .page input[type="file"], .modal-body input[type="file"] { padding: 8px; background: white; cursor: pointer; }
+
+    .page input:focus, .page select:focus, .page textarea:focus,
+    .modal-body input:focus, .modal-body select:focus, .modal-body textarea:focus { border-color: var(--azul-accent); box-shadow: 0 0 0 3px rgba(0, 86, 179, .16); }
+
+    .page input:disabled, .page select:disabled, .page textarea:disabled,
+    .modal-body input:disabled, .modal-body select:disabled, .modal-body textarea:disabled { background-color: var(--cinza-200); color: var(--cinza-600); cursor: not-allowed; }
+
+    .page select[multiple], .modal-body select[multiple] { height: auto; min-height: 80px; }
+
+    .page textarea, .modal-body textarea { min-height: 100px; resize: vertical; }
 
     .btn { border: none; border-radius: 8px; padding: 12px 16px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; gap: 8px; transition: background 0.2s; }
     .btn:hover { filter: brightness(0.92); }
