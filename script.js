@@ -358,8 +358,8 @@
         }
         let userError = null;
         if (getPerfil() === 'Master') {
-          const results = await Promise.all(usuarios.map(({ id, nome, email, cpf, perfil, status }) =>
-            supabaseClient.from('profiles').update({ nome, email, cpf, perfil, status }).eq('id', id)
+          const results = await Promise.all(usuarios.map(({ id, nome, email, cpf, perfil, status, setor }) =>
+            supabaseClient.from('profiles').update({ nome, email, cpf, perfil, status, setor }).eq('id', id)
           ));
           userError = results.find(r => r.error)?.error || null;
         }
@@ -2005,6 +2005,8 @@
             document.querySelector('#usuarioForm input[name="nome"]').value = u.nome;
             document.querySelector('#usuarioForm input[name="email"]').value = u.email;
             document.querySelector('#usuarioForm input[name="cpf"]').value = u.cpf || '';
+            const inputSetor = document.querySelector('#usuarioForm input[name="setor"]');
+            if (inputSetor) inputSetor.value = u.setor || '';
             document.querySelector('#usuarioForm select[name="perfil"]').value = u.perfil;
             document.getElementById('btnSubmitUsuario').innerText = 'Salvar Alterações';
             
@@ -2123,130 +2125,130 @@
     };
 
     function renderUsuarios() {
-    const page = document.getElementById('usuariosPage');
-    usuarioEditandoId = null; 
-    
-    const renderTableUsuarios = () => {
-        return usuarios.map(u => {
-            const isAtivo = u.status === 'Ativo';
-            
-            // Ícones SVG
-            const svgEditar = `<svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>`;
-            const svgSenha = `<svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"></path></svg>`;
-            const svgInativar = `<svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"></line></svg>`;
-            const svgAtivar = `<svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>`;
-
-            const svgStatus = isAtivo ? svgInativar : svgAtivar;
-            const btnClassStatus = isAtivo ? 'danger' : 'success';
-            const titleStatus = isAtivo ? 'Inativar Usuário' : 'Ativar Usuário';
-
-            return `
-            <tr>
-                <td><strong>${u.nome}</strong></td>
-                <td>${u.email}</td>
-                <td>${u.cpf || '-'}</td>
-                <td><span class="tag tag-status">${u.perfil}</span></td>
-                <td><span class="tag ${isAtivo ? 'tag-concluida' : 'tag-atrasada'}">${u.status}</span></td>
-                <td style="display: flex; gap: 8px;">
-                    <button class="small-btn action" style="padding: 8px; display: inline-flex; align-items: center;" title="Editar Perfil" onclick="editarUsuario('${u.id}')">
-                        ${svgEditar}
-                    </button>
-                    <button class="small-btn ${btnClassStatus}" style="padding: 8px; display: inline-flex; align-items: center;" title="${titleStatus}" onclick="toggleUserStatus('${u.id}')">
-                        ${svgStatus}
-                    </button>
-                    <button class="small-btn action" style="padding: 8px; display: inline-flex; align-items: center;" title="Redefinir Senha" onclick="alterarSenha('${u.id}')">
-                        ${svgSenha}
-                    </button>
-                </td>
-            </tr>`;
-        }).join('');
-    };
-
-    // NOVA FUNÇÃO: Renderiza a tabela da Sala de Espera
-const renderTableSolicitacoes = () => {
-        if (solicitacoes.length === 0) return '<tr><td colspan="5" style="text-align:center; color: var(--cinza-500);">Nenhuma solicitação de acesso pendente.</td></tr>';
+        const page = document.getElementById('usuariosPage');
+        usuarioEditandoId = null; 
         
-        return solicitacoes.map(s => {
-            // Ícones SVG para Aprovar e Rejeitar
-            const svgAprovar = `<svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>`;
-            const svgRejeitar = `<svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>`;
+        const renderTableUsuarios = () => {
+            return usuarios.map(u => {
+                const isAtivo = u.status === 'Ativo';
+                
+                // Ícones SVG
+                const svgEditar = `<svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>`;
+                const svgSenha = `<svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"></path></svg>`;
+                const svgInativar = `<svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"></line></svg>`;
+                const svgAtivar = `<svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>`;
 
-            return `
-            <tr>
-                <td><strong>${s.nome}</strong></td>
-                <td>${s.email}</td>
-                <td>${s.cpf || '-'}</td>
-                <td>${s.setor || '-'}</td>
-                <td style="display: flex; gap: 8px;">
-                    <button class="small-btn action" style="padding: 8px; display: inline-flex; align-items: center;" title="Editar Solicitação" onclick="editarSolicitacao('${s.id}')">
-                        <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
-                    </button>
-                    <button class="small-btn success" style="padding: 8px; display: inline-flex; align-items: center;" title="Aprovar Solicitação" onclick="aprovarSolicitacao(event, '${s.id}')">
-                        ${svgAprovar}
-                    </button>
-                    <button class="small-btn danger" style="padding: 8px; display: inline-flex; align-items: center;" title="Rejeitar Solicitação" onclick="rejeitarSolicitacao('${s.id}')">
-                        ${svgRejeitar}
-                    </button>
-                </td>
-            </tr>`;
-        }).join('');
-    };
+                const svgStatus = isAtivo ? svgInativar : svgAtivar;
+                const btnClassStatus = isAtivo ? 'danger' : 'success';
+                const titleStatus = isAtivo ? 'Inativar Usuário' : 'Ativar Usuário';
 
-    page.innerHTML = `
-        <!-- TABELA 1: SALA DE ESPERA (Novos Cadastros) -->
-        <div class="section-grid" style="grid-template-columns: 1fr; margin-bottom: 24px;">
-            <div class="card" style="border-left: 4px solid var(--amarelo);">
-            <h3 class="section-title">Solicitações Pendentes</h3>
-            <p style="font-size:12px;color:var(--cinza-600); margin-top:-10px; margin-bottom:15px;">Ao aprovar, o sistema criará o usuário e enviará a senha temporária para o e-mail automaticamente.</p>
-            <div class="table-wrap">
-                <table><thead><tr><th>Nome</th><th>E-mail</th><th>CPF</th><th>Setor</th><th>Ações</th></tr></thead><tbody id="solicitacoesTableBody">${renderTableSolicitacoes()}</tbody></table>
-            </div>
-            </div>
-        </div>
+                return `
+                <tr>
+                    <td><strong>${u.nome}</strong></td>
+                    <td>${u.email}</td>
+                    <td>${u.cpf || '-'}</td>
+                    <td>${u.setor || '-'}</td>
+                    <td><span class="tag tag-status">${u.perfil}</span></td>
+                    <td><span class="tag ${isAtivo ? 'tag-concluida' : 'tag-atrasada'}">${u.status}</span></td>
+                    <td style="display: flex; gap: 8px;">
+                        <button class="small-btn action" style="padding: 8px; display: inline-flex; align-items: center;" title="Editar Perfil" onclick="editarUsuario('${u.id}')">
+                            ${svgEditar}
+                        </button>
+                        <button class="small-btn ${btnClassStatus}" style="padding: 8px; display: inline-flex; align-items: center;" title="${titleStatus}" onclick="toggleUserStatus('${u.id}')">
+                            ${svgStatus}
+                        </button>
+                        <button class="small-btn action" style="padding: 8px; display: inline-flex; align-items: center;" title="Redefinir Senha" onclick="alterarSenha('${u.id}')">
+                            ${svgSenha}
+                        </button>
+                    </td>
+                </tr>`;
+            }).join('');
+        };
 
-        <!-- CARDS EXISTENTES: Edição e Tabela Geral -->
-        <div class="section-grid">
-            <div class="card">
-            <h3 class="section-title">Editar Perfil de Usuário</h3>
-            <p style="font-size:12px;color:var(--cinza-600)">Atualização de dados de usuários existentes</p>
-            <form id="usuarioForm">
-                <div class="form-group"><label>Nome Completo *</label><input name="nome" required placeholder="Nome do servidor" /></div>
-                <div class="form-group"><label>E-mail Institucional *</label><input type="email" name="email" required placeholder="email@saeb.ba.gov.br" /></div>
-                <div class="form-group"><label>CPF</label><input type="text" name="cpf" placeholder="000.000.000-00" oninput="this.value = maskCPF(this.value)" /></div>
-                <div class="form-group"><label>Perfil de Acesso</label><select name="perfil"><option value="Master">Master</option><option value="Usuário">Usuário</option></select></div>
-                <button type="submit" id="btnSubmitUsuario" class="btn btn-primary btn-full">Salvar Alterações</button>
-            </form>
-            </div>
+        const renderTableSolicitacoes = () => {
+            if (solicitacoes.length === 0) return '<tr><td colspan="5" style="text-align:center; color: var(--cinza-500);">Nenhuma solicitação de acesso pendente.</td></tr>';
             
-            <div class="card">
-            <h3 class="section-title">Usuários Cadastrados</h3>
-            <div class="table-wrap">
-                <table><thead><tr><th>Nome</th><th>E-mail</th><th>CPF</th><th>Perfil</th><th>Status</th><th>Ações</th></tr></thead><tbody id="usuariosTableBody">${renderTableUsuarios()}</tbody></table>
-            </div>
-            </div>
-        </div>
-    `;
+            return solicitacoes.map(s => {
+                const svgAprovar = `<svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>`;
+                const svgRejeitar = `<svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>`;
 
-    document.getElementById('usuarioForm').addEventListener('submit', (e) => {
-        e.preventDefault();
-        const data = Object.fromEntries(new FormData(e.target).entries());
-        
-        if (usuarioEditandoId) {
-            const idx = usuarios.findIndex(u => String(u.id) === String(usuarioEditandoId));
-            if(idx > -1) {
-                usuarios[idx] = { ...usuarios[idx], nome: data.nome, email: data.email, cpf: data.cpf, perfil: data.perfil };
-                registrarLog('Edição de Usuário', `Usuário atualizado: ${data.nome}`);
-                toast('Usuário atualizado com sucesso!');
+                return `
+                <tr>
+                    <td><strong>${s.nome}</strong></td>
+                    <td>${s.email}</td>
+                    <td>${s.cpf || '-'}</td>
+                    <td>${s.setor || '-'}</td>
+                    <td style="display: flex; gap: 8px;">
+                        <button class="small-btn action" style="padding: 8px; display: inline-flex; align-items: center;" title="Editar Solicitação" onclick="editarSolicitacao('${s.id}')">
+                            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+                        </button>
+                        <button class="small-btn success" style="padding: 8px; display: inline-flex; align-items: center;" title="Aprovar Solicitação" onclick="aprovarSolicitacao(event, '${s.id}')">
+                            ${svgAprovar}
+                        </button>
+                        <button class="small-btn danger" style="padding: 8px; display: inline-flex; align-items: center;" title="Rejeitar Solicitação" onclick="rejeitarSolicitacao('${s.id}')">
+                            ${svgRejeitar}
+                        </button>
+                    </td>
+                </tr>`;
+            }).join('');
+        };
+
+        page.innerHTML = `
+            <!-- TABELA 1: SALA DE ESPERA (Novos Cadastros) -->
+            <div class="section-grid" style="grid-template-columns: 1fr; margin-bottom: 24px;">
+                <div class="card" style="border-left: 4px solid var(--amarelo);">
+                <h3 class="section-title">Solicitações Pendentes</h3>
+                <p style="font-size:12px;color:var(--cinza-600); margin-top:-10px; margin-bottom:15px;">Ao aprovar, o sistema criará o usuário e enviará a senha temporária para o e-mail automaticamente.</p>
+                <div class="table-wrap">
+                    <table><thead><tr><th>Nome</th><th>E-mail</th><th>CPF</th><th>Setor</th><th>Ações</th></tr></thead><tbody id="solicitacoesTableBody">${renderTableSolicitacoes()}</tbody></table>
+                </div>
+                </div>
+            </div>
+
+            <!-- CARDS EXISTENTES: Edição e Tabela Geral -->
+            <div class="section-grid">
+                <div class="card">
+                <h3 class="section-title">Editar Perfil de Usuário</h3>
+                <p style="font-size:12px;color:var(--cinza-600)">Atualização de dados de usuários existentes</p>
+                <form id="usuarioForm">
+                    <div class="form-group"><label>Nome Completo *</label><input name="nome" required placeholder="Nome do servidor" /></div>
+                    <div class="form-group"><label>E-mail Institucional *</label><input type="email" name="email" required placeholder="email@saeb.ba.gov.br" /></div>
+                    <div class="form-group"><label>CPF</label><input type="text" name="cpf" placeholder="000.000.000-00" oninput="this.value = maskCPF(this.value)" /></div>
+                    <div class="form-group"><label>Setor / Coordenação</label><input type="text" name="setor" placeholder="Ex: CGCF" /></div>
+                    <div class="form-group"><label>Perfil de Acesso</label><select name="perfil"><option value="Master">Master</option><option value="Usuário">Usuário</option></select></div>
+                    <button type="submit" id="btnSubmitUsuario" class="btn btn-primary btn-full">Salvar Alterações</button>
+                </form>
+                </div>
+                
+                <div class="card">
+                <h3 class="section-title">Usuários Cadastrados</h3>
+                <div class="table-wrap">
+                    <table><thead><tr><th>Nome</th><th>E-mail</th><th>CPF</th><th>Setor</th><th>Perfil</th><th>Status</th><th>Ações</th></tr></thead><tbody id="usuariosTableBody">${renderTableUsuarios()}</tbody></table>
+                </div>
+                </div>
+            </div>
+        `;
+
+        document.getElementById('usuarioForm').addEventListener('submit', (e) => {
+            e.preventDefault();
+            const data = Object.fromEntries(new FormData(e.target).entries());
+            
+            if (usuarioEditandoId) {
+                const idx = usuarios.findIndex(u => String(u.id) === String(usuarioEditandoId));
+                if(idx > -1) {
+                    usuarios[idx] = { ...usuarios[idx], nome: data.nome, email: data.email, cpf: data.cpf, setor: data.setor, perfil: data.perfil };
+                    registrarLog('Edição de Usuário', `Usuário atualizado: ${data.nome}`);
+                    toast('Usuário atualizado com sucesso!');
+                }
+                usuarioEditandoId = null;
+                document.getElementById('btnSubmitUsuario').innerText = 'Salvar Alterações';
+                salvarBancoLocal();
+                document.getElementById('usuariosTableBody').innerHTML = renderTableUsuarios();
+                e.target.reset();
+            } else {
+                toast('Selecione um usuário na tabela clicando em Editar antes de salvar.');
             }
-            usuarioEditandoId = null;
-            document.getElementById('btnSubmitUsuario').innerText = 'Salvar Alterações';
-            salvarBancoLocal();
-            document.getElementById('usuariosTableBody').innerHTML = renderTableUsuarios();
-            e.target.reset();
-        } else {
-            toast('Selecione um usuário na tabela clicando em Editar antes de salvar.');
-        }
-    });
+        });
     }
 
     async function iniciarSessao(session) {
@@ -2312,5 +2314,58 @@ const renderTableSolicitacoes = () => {
     document.querySelectorAll('.nav-button[data-page]').forEach(btn => {
       btn.addEventListener('click', () => navegar(btn.dataset.page));
     });
+
+    // Modal de alteração da própria senha
+    window.abrirModalAlterarSenhaPropria = function() {
+        const modalHtml = `
+          <div class="modal-backdrop" onclick="fecharModal()">
+            <div class="modal-content" onclick="event.stopPropagation()" style="max-width: 400px;">
+              <div class="modal-header" style="color: var(--azul-900);">Alterar Minha Senha</div>
+              <div class="modal-body">
+                <p style="margin-top: 0; color: var(--cinza-600); font-size: 13px;">Digite sua nova senha abaixo (mínimo de 6 caracteres).</p>
+                <form onsubmit="salvarSenhaPropria(event)">
+                  <div class="form-group">
+                    <label>Nova Senha *</label>
+                    <input id="inputNovaSenha" type="password" required minlength="6" placeholder="******" />
+                  </div>
+                  <div class="form-group">
+                    <label>Confirmar Nova Senha *</label>
+                    <input id="inputConfirmaSenha" type="password" required minlength="6" placeholder="******" />
+                  </div>
+                  <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" onclick="fecharModal()">Cancelar</button>
+                    <button type="submit" class="btn btn-primary">Salvar Nova Senha</button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          </div>
+        `;
+        document.getElementById('modalContainer').innerHTML = modalHtml;
+        document.getElementById('modalContainer').classList.remove('hidden');
+    };
+
+    // Processa a troca no Supabase Auth
+    window.salvarSenhaPropria = async function(e) {
+        e.preventDefault();
+        const novaSenha = document.getElementById('inputNovaSenha').value;
+        const confirmaSenha = document.getElementById('inputConfirmaSenha').value;
+
+        if (novaSenha !== confirmaSenha) {
+            return toast('As senhas não coincidem!');
+        }
+
+        const { error } = await supabaseClient.auth.updateUser({ 
+            password: novaSenha 
+        });
+
+        if (error) {
+            return toast(`Erro ao atualizar senha: ${error.message}`);
+        }
+
+        toast('Senha alterada com sucesso!');
+        registrarLog('Segurança', 'O usuário alterou sua própria senha.');
+        fecharModal();
+    };
 
     inicializarSupabase();

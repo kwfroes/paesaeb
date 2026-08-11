@@ -85,10 +85,13 @@
     </aside>
 
     <main class="main">
-      <header class="topbar">
-        <h2 id="pageTitle" class="page-title">Painel de Controle</h2>
+    <header class="topbar">
+      <h2 id="pageTitle" class="page-title">Painel de Controle</h2>
+      <div style="display: flex; align-items: center; gap: 12px;">
+        <button class="btn btn-secondary btn-sm" onclick="abrirModalAlterarSenhaPropria()">🔑 Alterar Senha</button>
         <div class="user-pill" id="userPillInfo">👤 Thiago (Master)</div>
-      </header>
+      </div>
+    </header>
       <section class="content">
         <div id="dashboardPage" class="page"></div>
         <div id="novaPage" class="page hidden"></div>
