@@ -287,6 +287,7 @@
     let demandas = [];
     let solicitacoes = [];
     let usuarios = [];
+    let usuariosIdsModificados = new Set();
     let logsAudit = [];
     let idsDemandasCarregadas = new Set();
     
@@ -343,28 +344,49 @@
         }));
     }
 
-    // Mantém o nome para compatibilidade com os fluxos existentes, mas o banco é o Supabase.
     async function salvarBancoLocal() {
-        if (!supabaseClient || !sessaoAtual) return toast('Supabase não configurado ou sessão expirada. Nada foi salvo.');
-        let demError = null;
-        if (getPerfil() === 'Master') {
-          const result = demandas.length ? await supabaseClient.from('demandas').upsert(demandas.map(demandaParaLinha)) : { error: null };
-          demError = result.error;
-        } else {
-          const results = await Promise.all(demandas.filter(d => idsDemandasCarregadas.has(String(d.id))).map(d =>
-            supabaseClient.from('demandas').update(demandaParaLinha(d)).eq('id', d.id)
-          ));
-          demError = results.find(r => r.error)?.error || null;
-        }
+        if (!supabaseClient || !sessaoAtual) return;
+        
         let userError = null;
-        if (getPerfil() === 'Master') {
-          const results = await Promise.all(usuarios.map(({ id, nome, email, cpf, perfil, status, setor }) =>
+        // Salva APENAS os usuários que tiveram o status/perfil modificados
+        if (getPerfil() === 'Master' && usuariosIdsModificados.size > 0) {
+        const usuariosParaSalvar = usuarios.filter(u => usuariosIdsModificados.has(String(u.id)));
+        const results = await Promise.all(usuariosParaSalvar.map(({ id, nome, email, cpf, perfil, status, setor }) =>
             supabaseClient.from('profiles').update({ nome, email, cpf, perfil, status, setor }).eq('id', id)
-          ));
-          userError = results.find(r => r.error)?.error || null;
+        ));
+        userError = results.find(r => r.error)?.error || null;
+        if (!userError) usuariosIdsModificados.clear();
         }
-        const error = demError || userError;
-        if (error) { console.error(error); toast(`Falha ao salvar: ${error.message}`); }
+        
+        if (userError) { 
+            console.error(userError); 
+            toast(`Falha ao salvar usuário: ${userError.message}`); 
+        }
+    }
+
+    async function salvarDemandaNoBanco(idDemanda) {
+        if (!supabaseClient || !sessaoAtual) return toast('Supabase não configurado ou sessão expirada.');
+        
+        const demanda = demandas.find(d => String(d.id) === String(idDemanda));
+        if (!demanda) return;
+
+        const linha = demandaParaLinha(demanda);
+        
+        if (!idsDemandasCarregadas.has(String(demanda.id))) {
+            const { error } = await supabaseClient.from('demandas').insert([linha]);
+            if (!error) {
+                idsDemandasCarregadas.add(String(demanda.id)); // Atualiza o controle local
+            } else {
+                console.error(error);
+                toast(`Falha ao cadastrar: ${error.message}`);
+            }
+        } else {
+            const { error } = await supabaseClient.from('demandas').update(linha).eq('id', demanda.id);
+            if (error) {
+                console.error(error);
+                toast(`Falha ao atualizar: ${error.message}`);
+            }
+        }
     }
 
     async function registrarLog(acao, detalhe) {
@@ -1156,7 +1178,9 @@
             isAllCompleted = true;
         }
 
+        let idDemanda;
         if (!isMaster) {
+            idDemanda = demandaEditandoId;
             const index = demandas.findIndex(x => String(x.id) === String(demandaEditandoId));
             if(index > -1) {
                 demandas[index].atividades = listaAtv;
@@ -1182,7 +1206,7 @@
             dados.objetivos_estrategicos = Array.from(objEstSelects).map(opt => opt.value);
 
             dados.atividades = listaAtv;
-            const idDemanda = isEdit ? demandaEditandoId : Date.now();
+            idDemanda = isEdit ? demandaEditandoId : Date.now();
             const anexosExistentes = anexosTemporarios.filter(a => !a.file);
             const anexosNovos = await enviarAnexos(idDemanda, anexosTemporarios.filter(a => a.file));
             dados.anexos = [...anexosExistentes, ...anexosNovos];
@@ -1214,7 +1238,7 @@
             }
         }
         
-        await salvarBancoLocal();
+        await salvarDemandaNoBanco(idDemanda);
         demandaEditandoId = null;
         anexosTemporarios = [];
         navegar('gestao');
@@ -1395,7 +1419,7 @@
             etapaAtual: etapaAtualIndex
         };
         
-        salvarBancoLocal();
+        salvarDemandaNoBanco(id);
         toast('Ficha EAP salva com sucesso!');
     };
 
@@ -1668,7 +1692,7 @@
         if(index > -1) {
             demandas[index].status = 'Concluído';
             registrarLog('Conclusão', `Projeto/Ação Concluído: ${demandas[index].titulo}`);
-            salvarBancoLocal();
+            salvarDemandaNoBanco(id);
             toast('Demanda concluída com sucesso!');
             if(document.getElementById('gestaoContainer')) {
                 document.getElementById('gestaoContainer').innerHTML = window._renderCardsContent();
@@ -1706,7 +1730,7 @@
               if (error) { toast(`Falha ao excluir: ${error.message}`); return; }
             }
             registrarLog('Exclusão', `Projeto/Ação Excluído: ${d.titulo}`);
-            salvarBancoLocal();
+            //salvarBancoLocal();
             toast('Demanda excluída com sucesso!');
         }
         fecharModal();
@@ -1722,7 +1746,7 @@
         if(d) {
             d.destaque = !d.destaque;
             registrarLog('Destaque', `Alteração de Destaque (${d.destaque}) no Projeto/Ação: ${d.titulo}`);
-            salvarBancoLocal();
+            salvarDemandaNoBanco(id);
             toast(d.destaque ? 'Demanda marcada como destaque!' : 'Destaque removido.');
             if(document.getElementById('gestaoContainer')) {
                 document.getElementById('gestaoContainer').innerHTML = window._renderCardsContent();
@@ -1980,6 +2004,7 @@
         const u = usuarios.find(x => String(x.id) === String(id));
         if(u) {
             u.status = u.status === 'Ativo' ? 'Inativo' : 'Ativo';
+            usuariosIdsModificados.add(String(u.id));
             registrarLog('Usuário', `Status do usuário ${u.nome} alterado para ${u.status}`);
             salvarBancoLocal();
             toast(`Usuário ${u.status.toLowerCase()}!`);
@@ -2237,6 +2262,7 @@
                 const idx = usuarios.findIndex(u => String(u.id) === String(usuarioEditandoId));
                 if(idx > -1) {
                     usuarios[idx] = { ...usuarios[idx], nome: data.nome, email: data.email, cpf: data.cpf, setor: data.setor, perfil: data.perfil };
+                    usuariosIdsModificados.add(String(usuarioEditandoId));
                     registrarLog('Edição de Usuário', `Usuário atualizado: ${data.nome}`);
                     toast('Usuário atualizado com sucesso!');
                 }
@@ -2304,7 +2330,7 @@
 
     document.getElementById('logoutBtn').addEventListener('click', async () => {
       if (supabaseClient) await supabaseClient.auth.signOut();
-      sessaoAtual = null; perfilAtual = null; demandas = []; usuarios = []; logsAudit = [];
+    sessaoAtual = null; perfilAtual = null; demandas = []; usuarios = []; usuariosIdsModificados.clear(); logsAudit = [];
       document.getElementById('loginEmail').value = '';
       document.getElementById('loginSenha').value = '';
       document.getElementById('appPage').classList.add('hidden');
