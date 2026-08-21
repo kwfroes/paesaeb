@@ -464,6 +464,7 @@
           'nova': demandaEditandoId ? (isMaster ? 'Editar Projeto/Ação' : 'Atualizar Atividades do Projeto') : 'Cadastrar Projeto/Ação Estratégica',
           'gestao': '', 
           'eap': 'EAP - Estrutura Analítica do Projeto',
+          'cards': 'Visão em Cards dos Projetos',
           'usuarios': 'Gestão de Usuários',
           'relatorios': 'Relatórios de Auditoria (Logs)'
       };
@@ -487,6 +488,7 @@
       if(page === 'gestao') renderGestao();
       if(page === 'relatorios') renderRelatorios();
       if(page === 'eap') renderEAP();
+      if(page === 'cards') renderCardsPage();
     }
 
     window.fecharModal = function() {
@@ -615,7 +617,7 @@
         
         const qtdProjetos = demandas.filter(d => d.tipo_demanda === 'Projeto').length;
         const qtdAcoes = demandas.filter(d => d.tipo_demanda === 'Ação Estratégica').length;
-        const qtdPrioritarios = demandas.filter(d => d.prioridade === 'Alta' || d.prioridade === 'Crítica').length;
+        const qtdPrioritarios = demandas.filter(d => d.destaque === true).length;
         
         const projetosEmAndamento = ativas.filter(d => d.tipo_demanda === 'Projeto').length;
         const projetosConcluidos = concluidas.filter(d => d.tipo_demanda === 'Projeto').length;
@@ -2369,6 +2371,376 @@
         `;
         document.getElementById('modalContainer').innerHTML = modalHtml;
         document.getElementById('modalContainer').classList.remove('hidden');
+    };
+
+    // --- NOVA TELA: VISÃO EM CARDS ---
+    function renderCardsPage() {
+        const page = document.getElementById('cardsPage');
+        
+        // Função interna que filtra, ordena, agrupa e renderiza os cards
+        window._atualizarGridCards = () => {
+            const busca = document.getElementById('fBuscaCards')?.value.toLowerCase() || '';
+            const tipo = document.getElementById('fTipoCards')?.value || '';
+            const status = document.getElementById('fStatusCards')?.value || '';
+            const competenciaFiltro = document.getElementById('fCompCards')?.value || '';
+
+            // 1. FILTRAR
+            let filtered = demandas.filter(d => {
+                if (tipo && d.tipo_demanda !== tipo) return false;
+                if (status && d.status !== status) return false;
+                if (competenciaFiltro && !(d.competencias && d.competencias.includes(competenciaFiltro))) return false;
+                if (busca) {
+                    const text = `${d.titulo} ${d.diretoria || ''}`.toLowerCase();
+                    if (!text.includes(busca)) return false;
+                }
+                return true;
+            });
+
+            const container = document.getElementById('cardsGridContainer');
+            if (!container) return;
+
+            if (filtered.length === 0) {
+                container.innerHTML = '<div style="text-align: center; padding: 40px; color: var(--cinza-500);">Nenhum projeto/ação encontrado com esses filtros.</div>';
+                return;
+            }
+
+            // 2. ORDENAR INTERNAMENTE (Projetos com Destaque/Estrela aparecem primeiro dentro de cada seção)
+            filtered.sort((a, b) => {
+                if (a.destaque && !b.destaque) return -1;
+                if (!a.destaque && b.destaque) return 1;
+                return 0; // Se forem iguais, mantém a ordem original
+            });
+
+            // 3. AGRUPAR POR COMPETÊNCIA
+            const grupos = {};
+            
+            // Inicializamos os grupos para garantir a mesma ordem da lista oficial de competências
+            if (competenciaFiltro) {
+                grupos[competenciaFiltro] = [];
+            } else {
+                opcoes.competencias_lista.forEach(comp => { grupos[comp] = []; });
+                grupos['Outras / Sem Competência Vinculada'] = []; // Para os que não tem competência cadastrada
+            }
+
+            // Distribui os projetos filtrados dentro das "gavetas" (grupos)
+            filtered.forEach(d => {
+                let temComp = false;
+                if (d.competencias && d.competencias.length > 0) {
+                    d.competencias.forEach(comp => {
+                        if (competenciaFiltro && comp !== competenciaFiltro) return; 
+                        if (!grupos[comp]) grupos[comp] = [];
+                        grupos[comp].push(d);
+                        temComp = true;
+                    });
+                } 
+                
+                if (!temComp && !competenciaFiltro) {
+                    grupos['Outras / Sem Competência Vinculada'].push(d);
+                }
+            });
+
+            // 4. ORDENAR AS SEÇÕES (Grupos inteiros sobem se tiverem projetos com estrela)
+            let secoesArray = [];
+            for (const [nomeComp, listaDemandas] of Object.entries(grupos)) {
+                if (listaDemandas.length === 0) continue; // Ignora seções vazias
+                
+                // Verifica se tem pelo menos UM projeto com estrela neste grupo
+                const temEstrela = listaDemandas.some(d => d.destaque === true);
+                
+                secoesArray.push({
+                    nomeComp: nomeComp,
+                    listaDemandas: listaDemandas,
+                    temEstrela: temEstrela
+                });
+            }
+
+            // Ordena o array de seções: as que temEstrela=true vão para o topo
+            secoesArray.sort((a, b) => {
+                if (a.temEstrela && !b.temEstrela) return -1;
+                if (!a.temEstrela && b.temEstrela) return 1;
+                return 0; // Se empatar (ambos tem ou ambos não tem), mantém a ordem original
+            });
+
+            // 5. RENDERIZAR O HTML DIVIDIDO POR SEÇÕES
+            let htmlFinal = '';
+
+            secoesArray.forEach(secao => {
+                const { nomeComp, listaDemandas } = secao;
+
+                const cardsHtml = listaDemandas.map(d => {
+                    let passosHtml = '';
+                    if (d.atividades && d.atividades.length > 0) {
+                        passosHtml = d.atividades.map((at, i) => {
+                            const tituloEscapado = at.titulo ? at.titulo.replace(/"/g, '&quot;') : 'Sem título';
+                            return `
+                            <div style="font-size: 11px; padding: 6px; border-bottom: 1px solid var(--cinza-200); display: flex; justify-content: space-between; align-items: flex-start; gap: 8px;">
+                                <div style="flex: 1;">
+                                    <strong style="color: var(--azul-900);">Ativ ${i+1}:</strong> ${tituloEscapado} 
+                                </div>
+                                <span style="white-space: nowrap; font-weight: bold; color: ${at.status === 'Concluído' || at.status === 'Concluída' ? 'var(--verde)' : 'var(--cinza-600)'}">${at.status || 'A iniciar'}</span>
+                            </div>
+                            `;
+                        }).join('');
+                    } else {
+                        passosHtml = '<div style="font-size: 11px; color: var(--cinza-500); padding: 5px;">Nenhuma atividade cadastrada.</div>';
+                    }
+
+                    return `
+                    <div class="card-projeto" id="print-card-${d.id}" style="background: white; border: 1px solid var(--cinza-200); border-radius: 8px; padding: 16px; display: flex; flex-direction: column; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">
+                        <div style="flex-grow: 1;">
+                            <h4 style="margin-top: 0; color: var(--azul-900); font-size: 15px; margin-bottom: 8px; line-height: 1.3;">
+                                ${d.destaque ? '⭐ ' : ''}${d.titulo}
+                            </h4>
+                            <div style="font-size: 12px; color: var(--cinza-600); margin-bottom: 12px;">
+                                <strong>Tipo:</strong> ${d.tipo_demanda || '-'} <br>
+                                <strong>Status:</strong> ${d.status || '-'} <br>
+                                <strong>Diretoria:</strong> ${Array.isArray(d.diretoria) ? d.diretoria.join(', ') : d.diretoria || '-'}
+                            </div>
+                            <div style="background: var(--cinza-100); padding: 8px; border-radius: 4px; margin-bottom: 16px;">
+                                <strong style="font-size: 12px; color: var(--azul-800); display: block; margin-bottom: 6px;">Atividades Principais:</strong>
+                                <div class="passos-container" style="max-height: 180px; overflow-y: auto;">
+                                    ${passosHtml}
+                                </div>
+                            </div>
+                        </div>
+                        <div style="text-align: right; border-top: 1px solid var(--cinza-200); padding-top: 12px;" class="no-print">
+                            <button class="btn btn-secondary btn-sm" onclick="imprimirRelatorio('${d.id}')">🖨️ Salvar/Imprimir</button>
+                        </div>
+                    </div>
+                    `;
+                }).join('');
+
+                // Adiciona o cabeçalho da Competência e "envelopa" os cards em um Grid
+                htmlFinal += `
+                    <div class="competencia-section" style="margin-bottom: 40px;">
+                        <h3 style="color: var(--azul-900); border-bottom: 2px solid var(--azul-100); padding-bottom: 8px; margin-bottom: 20px; font-size: 16px;">
+                            📚 ${nomeComp} <span style="font-size: 12px; color: var(--cinza-500); font-weight: normal; margin-left: 8px;">(${listaDemandas.length} projeto(s)/ação(ões))</span>
+                        </h3>
+                        <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px;">
+                            ${cardsHtml}
+                        </div>
+                    </div>
+                `;
+            });
+
+            container.innerHTML = htmlFinal;
+        };
+
+        // Estrutura HTML da página (com a nova barra de filtros)
+        page.innerHTML = `
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                <p style="color:var(--cinza-600); font-size:13px; margin: 0;">Visão rápida dos projetos organizados por Competência Regimental e suas atividades.</p>
+            </div>
+            
+            <div class="card" style="padding: 16px; margin-bottom: 24px;">
+                <div class="filters-row" style="margin-bottom: 0;">
+                    <input id="fBuscaCards" type="text" placeholder="Pesquisar por título..." />
+                    
+                    <select id="fTipoCards">
+                        <option value="">Todos os Tipos</option>
+                        ${opcoes.tipos.map(t => `<option value="${t}">${t}</option>`).join('')}
+                    </select>
+                    
+                    <select id="fCompCards">
+                        <option value="">Todas as Competências</option>
+                        ${opcoes.competencias_lista.map(c => `<option value="${c}">${c}</option>`).join('')}
+                    </select>
+
+                    <select id="fStatusCards">
+                        <option value="">Todas as Situações</option>
+                        ${opcoes.status.map(s => `<option value="${s}">${s}</option>`).join('')}
+                    </select>
+                </div>
+            </div>
+
+            <div id="cardsGridContainer" style="display: block;">
+            </div>
+        `;
+
+        // Atribui os eventos aos filtros
+        document.getElementById('fBuscaCards').addEventListener('input', window._atualizarGridCards);
+        document.getElementById('fTipoCards').addEventListener('change', window._atualizarGridCards);
+        document.getElementById('fCompCards').addEventListener('change', window._atualizarGridCards);
+        document.getElementById('fStatusCards').addEventListener('change', window._atualizarGridCards);
+
+        // Renderiza a primeira vez ao abrir a tela
+        window._atualizarGridCards();
+    }
+
+    window.imprimirRelatorio = function(id) {
+            const d = demandas.find(x => String(x.id) === String(id));
+            if(!d) return;
+
+            // 1. Formatações auxiliares
+            const compHtml = (d.competencias && d.competencias.length > 0) ? d.competencias.join(', ') : '-';
+            const objEstHtml = (d.objetivos_estrategicos && d.objetivos_estrategicos.length > 0) ? d.objetivos_estrategicos.join(', ') : '-';
+            const dirStr = Array.isArray(d.diretoria) ? d.diretoria.join(', ') : (d.diretoria || '-');
+            const coordStr = Array.isArray(d.coordenacao) ? d.coordenacao.join(', ') : (d.coordenacao || '-');
+
+            // 2. Montagem das Atividades e Sub-atividades
+            let atividadesHtml = '<p style="color:#777; font-size: 14px;">Nenhuma atividade vinculada a este projeto.</p>';
+            if (d.atividades && d.atividades.length > 0) {
+                atividadesHtml = d.atividades.map((act, idx) => {
+                    const actRespFormat = Array.isArray(act.responsavel) ? act.responsavel.join(', ') : (act.responsavel || '-');
+                    const tituloEscapado = act.titulo ? act.titulo.replace(/"/g, '&quot;') : 'Sem título';
+
+                    let subHtml = '';
+                    if(act.subAtividades && act.subAtividades.length > 0) {
+                        subHtml = `<div style="margin-top: 10px; padding-left: 16px; border-left: 2px solid #cbd5e1; page-break-inside: avoid;">` + 
+                        act.subAtividades.map(sub => {
+                            const subRespFormat = Array.isArray(sub.responsavel) ? sub.responsavel.join(', ') : (sub.responsavel || '-');
+                            const subTituloEscapado = sub.titulo ? sub.titulo.replace(/"/g, '&quot;') : 'Sem título';
+                            const obsHtml = sub.obs ? `<div style="color: #888; font-style: italic; margin-top: 2px;">Obs: ${sub.obs.replace(/"/g, '&quot;')}</div>` : '';
+                            
+                            return `
+                            <div style="margin-bottom: 8px; font-size: 12px; background: #ffffff; padding: 6px; border-radius: 4px; border: 1px solid #e2e8f0; page-break-inside: avoid;">
+                                <div style="display: flex; justify-content: space-between;">
+                                    <strong>↳ ${subTituloEscapado}</strong> 
+                                    <span style="color: ${sub.status === 'Concluído' ? '#166534' : '#666'}; font-weight: bold;">${sub.status || 'A iniciar'}</span>
+                                </div>
+                                <div style="color: #555; margin-top: 4px;">
+                                    Coordenação: ${subRespFormat} | Prazo: ${formatarDataBR(sub.prazo)}
+                                </div>
+                                ${obsHtml}
+                            </div>`;
+                        }).join('') + `</div>`;
+                    }
+
+                    return `
+                    <div style="margin-bottom: 16px; padding: 12px; background: #f8fafc; border-left: 4px solid #1e3a8a; border-radius: 4px; border: 1px solid #e2e8f0; page-break-inside: avoid;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                            <strong style="font-size: 14px; color: #1e3a8a;">Atividade ${idx + 1}: ${tituloEscapado}</strong>
+                            <span style="font-size: 11px; font-weight: bold; background: ${act.status === 'Concluído' ? '#dcfce7' : '#e2e8f0'}; color: ${act.status === 'Concluído' ? '#166534' : '#333'}; padding: 4px 8px; border-radius: 12px;">${act.status || 'A iniciar'}</span>
+                        </div>
+                        <div style="font-size: 12px; color: #444; margin-bottom: 8px;">
+                            <strong>Diretoria(s):</strong> ${actRespFormat} | <strong>Prazo Estimado:</strong> ${formatarDataBR(act.prazo)}
+                        </div>
+                        ${subHtml}
+                    </div>
+                    `;
+                }).join('');
+            }
+
+            // 3. Monta o Documento HTML que será impresso
+            const htmlConteudo = `
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <title>Relatório - ${d.titulo}</title>
+                    <style>
+                        body { 
+                            font-family: Arial, sans-serif; 
+                            color: #333; 
+                            padding: 20px; 
+                            margin: 0;
+                            background: white;
+                        }
+                        /* Garante que o navegador imprima as cores de fundo (azul do topo, verde dos botões, etc) */
+                        @media print {
+                            * {
+                                -webkit-print-color-adjust: exact !important;
+                                print-color-adjust: exact !important;
+                            }
+                            body { padding: 0; }
+                        }
+                    </style>
+                </head>
+                <body>
+                    <!-- HEADER -->
+                    <div style="background: #1e3a8a; color: white; padding: 24px; border-radius: 8px; margin-bottom: 24px;">
+                        <h2 style="margin: 0 0 6px 0; font-size: 12px; text-transform: uppercase; color: #93c5fd; letter-spacing: 1px;">Estado da Bahia | Secretaria da Administração | SRL</h2>
+                        <h1 style="margin: 0; font-size: 22px;">Resumo Executivo do Projeto</h1>
+                    </div>
+
+                    <!-- TÍTULO PRINCIPAL -->
+                    <div style="margin-bottom: 24px;">
+                        <h3 style="margin: 0 0 10px 0; font-size: 24px; color: #1e293b; line-height: 1.3;">${d.titulo || '-'}</h3>
+                        <div style="display: inline-block; background: ${d.status === 'Concluído' ? '#dcfce7' : '#e0f2fe'}; color: ${d.status === 'Concluído' ? '#166534' : '#0369a1'}; padding: 6px 14px; border-radius: 16px; font-size: 13px; font-weight: bold; border: 1px solid ${d.status === 'Concluído' ? '#bbf7d0' : '#bae6fd'};">
+                            Status Atual: ${d.status || '-'}
+                        </div>
+                    </div>
+
+                    <!-- INFOS BÁSICAS (GRID) -->
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 24px;">
+                        <div style="background: #f1f5f9; padding: 16px; border-radius: 8px; border: 1px solid #e2e8f0;">
+                            <strong style="display: block; font-size: 11px; color: #64748b; text-transform: uppercase; margin-bottom: 6px;">Diretoria(s) / Coordenação</strong>
+                            <div style="font-size: 14px; color: #0f172a; font-weight: 500;">${dirStr} <span style="color:#94a3b8;">/</span> ${coordStr}</div>
+                        </div>
+                        <div style="background: #f1f5f9; padding: 16px; border-radius: 8px; border: 1px solid #e2e8f0;">
+                            <strong style="display: block; font-size: 11px; color: #64748b; text-transform: uppercase; margin-bottom: 6px;">Valor Estimado Global</strong>
+                            <div style="font-size: 15px; font-weight: bold; color: #15803d;">R$ ${d.valor_estimado || '0,00'}</div>
+                        </div>
+                        <div style="background: #f1f5f9; padding: 16px; border-radius: 8px; border: 1px solid #e2e8f0;">
+                            <strong style="display: block; font-size: 11px; color: #64748b; text-transform: uppercase; margin-bottom: 6px;">Período (Início / Fim Estimado)</strong>
+                            <div style="font-size: 14px; color: #0f172a; font-weight: 500;">${formatarDataBR(d.data_abertura)} <span style="color:#94a3b8;">até</span> ${formatarDataBR(d.prazo_final)}</div>
+                        </div>
+                        <div style="background: #f1f5f9; padding: 16px; border-radius: 8px; border: 1px solid #e2e8f0;">
+                            <strong style="display: block; font-size: 11px; color: #64748b; text-transform: uppercase; margin-bottom: 6px;">Nº Processo SEI</strong>
+                            <div style="font-size: 14px; color: #0f172a; font-weight: 500;">${d.processo_sei || 'Não informado'}</div>
+                        </div>
+                    </div>
+
+                    <!-- ESTRATÉGIA -->
+                    <div style="margin-bottom: 24px; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; page-break-inside: avoid;">
+                        <h4 style="margin: 0 0 12px 0; font-size: 15px; color: #1e3a8a; border-bottom: 2px solid #f1f5f9; padding-bottom: 8px;">Alinhamento Estratégico</h4>
+                        <div style="margin-bottom: 12px;">
+                            <strong style="font-size: 12px; color: #475569; display: block; margin-bottom: 4px;">Competência Regimental:</strong>
+                            <div style="font-size: 13px; color: #1e293b; background: #f8fafc; padding: 6px 10px; border-radius: 4px;">${compHtml}</div>
+                        </div>
+                        <div>
+                            <strong style="font-size: 12px; color: #475569; display: block; margin-bottom: 4px;">Plano Estratégico 2025-2027:</strong>
+                            <div style="font-size: 13px; color: #1e293b; background: #f8fafc; padding: 6px 10px; border-radius: 4px;">${objEstHtml}</div>
+                        </div>
+                    </div>
+
+                    <!-- TEXTOS LONGOS -->
+                    <div style="margin-bottom: 30px; display: flex; flex-direction: column; gap: 16px;">
+                        <div style="page-break-inside: avoid;">
+                            <h4 style="margin: 0 0 6px 0; font-size: 14px; color: #1e3a8a;">🎯 Objetivo</h4>
+                            <p style="margin: 0; font-size: 13px; line-height: 1.6; color: #333; background: #fff; border: 1px solid #e2e8f0; padding: 12px; border-radius: 6px; text-align: justify;">${d.objetivo || '-'}</p>
+                        </div>
+                        <div style="page-break-inside: avoid;">
+                            <h4 style="margin: 0 0 6px 0; font-size: 14px; color: #1e3a8a;">💡 Justificativa</h4>
+                            <p style="margin: 0; font-size: 13px; line-height: 1.6; color: #333; background: #fff; border: 1px solid #e2e8f0; padding: 12px; border-radius: 6px; text-align: justify;">${d.justificativa || '-'}</p>
+                        </div>
+                        <div style="page-break-inside: avoid;">
+                            <h4 style="margin: 0 0 6px 0; font-size: 14px; color: #1e3a8a;">📈 Resultados Esperados</h4>
+                            <p style="margin: 0; font-size: 13px; line-height: 1.6; color: #333; background: #fff; border: 1px solid #e2e8f0; padding: 12px; border-radius: 6px; text-align: justify;">${d.resultados || '-'}</p>
+                        </div>
+                    </div>
+
+                    <!-- ATIVIDADES -->
+                    <div style="page-break-before: always; padding-top: 20px;">
+                        <h4 style="margin: 0 0 16px 0; font-size: 18px; color: #1e3a8a; border-bottom: 2px solid #1e3a8a; padding-bottom: 6px; page-break-after: avoid;">Estrutura de Atividades</h4>
+                        ${atividadesHtml}
+                    </div>
+                    
+                    <!-- RODAPÉ DO DOCUMENTO -->
+                    <div style="margin-top: 40px; text-align: center; font-size: 10px; color: #94a3b8; border-top: 1px solid #e2e8f0; padding-top: 16px; page-break-inside: avoid;">
+                        Resumo gerado pelo Sistema de Projetos e Ações Estratégicas - SRL/SAEB em ${new Date().toLocaleDateString('pt-BR', {hour: '2-digit', minute:'2-digit'})} por ${perfilAtual?.nome || sessaoAtual?.user?.email || 'Usuário'}
+                    </div>
+                </body>
+                </html>
+            `;
+
+            // 4. Cria o iframe "invisível" para disparar a impressão
+            const iframe = document.createElement('iframe');
+            iframe.style.display = 'none';
+            document.body.appendChild(iframe);
+            
+            iframe.contentDocument.write(htmlConteudo);
+            iframe.contentDocument.close();
+
+            // 5. Aguarda uma fração de segundo para o navegador interpretar o CSS e aciona a impressão
+            setTimeout(() => {
+                iframe.contentWindow.focus();
+                iframe.contentWindow.print();
+                
+                // Remove o iframe da memória após fechar a janela de impressão
+                setTimeout(() => {
+                    document.body.removeChild(iframe);
+                }, 2000);
+            }, 300);
     };
 
     // Processa a troca no Supabase Auth
