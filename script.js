@@ -22,6 +22,20 @@
         document.getElementById('appPage').classList.toggle('collapsed');
     };
 
+    // Alterna visibilidade da senha na tela de login (corrige o "olho")
+    window.togglePasswordVisibility = function(inputId, btnEl) {
+        const input = document.getElementById(inputId);
+        const iconAberto = document.getElementById('iconOlhoAberto');
+        const iconFechado = document.getElementById('iconOlhoFechado');
+        if(!input) return;
+        const mostrando = input.type === 'text';
+        input.type = mostrando ? 'password' : 'text';
+        if(iconAberto && iconFechado) {
+            iconAberto.classList.toggle('hidden', mostrando);
+            iconFechado.classList.toggle('hidden', !mostrando);
+        }
+    };
+
     // Helper Global para os Dropdowns Customizados
     window.toggleDropdown = function(element) {
         element.parentElement.classList.toggle('visible');
@@ -245,6 +259,7 @@
       diretorias: ['DSL', 'DM', 'DS', 'COE', 'ASS'],
       coordenacoes: ['CGSA', 'CGCF', 'CPRF', 'CGC', 'CMP', 'CSA', 'CST', 'CSCCAB', 'NPD', 'EXEC', 'ASS'],
       tipos: ['Projeto', 'Ação Estratégica'],
+      tipo_iniciativa: ['Melhoria', 'Inovação'],
       prioridades: ['Baixa', 'Média', 'Alta', 'Crítica'],
       status: ['A iniciar', 'Em andamento', 'Concluído', 'Sobrestado', 'Em Análise SRL'],
       competencias_lista: [
@@ -299,11 +314,21 @@
 
     // Variáveis temporárias anexos
     let anexosTemporarios = [];
+
+
+    let opcoesVinculacao = [];           // lista de opções cadastradas pelos usuários (tabela opcoes_vinculacao)
+    let resumosExecutivos = [];          // lista de cards (tabela resumo_executivo, agora multi-registro)
+    let tabelaResumoDisponivel = true;
+    let tabelaVinculacaoDisponivel = true;
+    let visualizacoesCard = {};          // { demanda_id: 'ISO date da confirmação' } do usuário atual (tabela visualizacoes_card)
+    let tabelaVisualizacaoDisponivel = true;
     
     function normalizarDemanda(d) {
         if (typeof d.coordenacao === 'string') d.coordenacao = d.coordenacao ? [d.coordenacao] : [];
         d.diretoria ||= []; d.competencias ||= []; d.objetivos_estrategicos ||= [];
         d.atividades ||= []; d.anexos ||= [];
+        d.vinculacao ||= []; d.tipo_iniciativa ||= '';
+        d.atualizado_atividades_em ||= null;
         d.titulo ||= d.codigo || 'Projeto sem título';
         d.tem_anexo = d.anexos.length > 0;
         return d;
@@ -342,6 +367,41 @@
           id: l.id, dataHora: new Date(l.created_at).toLocaleString('pt-BR'),
           usuario: l.usuario_email || 'Usuário', acao: l.acao, detalhe: l.detalhe
         }));
+
+        // --- Carregamentos opcionais (tabelas novas). Não interrompem o carregamento geral se falharem. ---
+        try {
+            const { data, error } = await supabaseClient.from('resumo_executivo').select('*').order('criado_em', { ascending: false });
+            if (error) throw error;
+            resumosExecutivos = data || [];
+            tabelaResumoDisponivel = true;
+        } catch (e) {
+            console.warn('Tabela resumo_executivo indisponível:', e.message);
+            resumosExecutivos = [];
+            tabelaResumoDisponivel = false;
+        }
+
+        try {
+            const { data, error } = await supabaseClient.from('opcoes_vinculacao').select('*').order('nome');
+            if (error) throw error;
+            opcoesVinculacao = data || [];
+            tabelaVinculacaoDisponivel = true;
+        } catch (e) {
+            console.warn('Tabela opcoes_vinculacao indisponível:', e.message);
+            opcoesVinculacao = [];
+            tabelaVinculacaoDisponivel = false;
+        }
+
+        try {
+            const { data, error } = await supabaseClient.from('visualizacoes_card').select('*').eq('user_id', sessaoAtual.user.id);
+            if (error) throw error;
+            visualizacoesCard = {};
+            (data || []).forEach(v => { visualizacoesCard[String(v.demanda_id)] = v.confirmado_em; });
+            tabelaVisualizacaoDisponivel = true;
+        } catch (e) {
+            console.warn('Tabela visualizacoes_card indisponível:', e.message);
+            visualizacoesCard = {};
+            tabelaVisualizacaoDisponivel = false;
+        }
     }
 
     async function salvarBancoLocal() {
@@ -460,11 +520,12 @@
       document.querySelectorAll('.nav-button').forEach(b => b.classList.toggle('active', b.dataset.page === page));
       
       const titulos = {
+          'resumo': 'Resumo Executivo',
           'dashboard': 'Painel de Controle',
           'nova': demandaEditandoId ? (isMaster ? 'Editar Projeto/Ação' : 'Atualizar Atividades do Projeto') : 'Cadastrar Projeto/Ação Estratégica',
           'gestao': '', 
           'eap': 'EAP - Estrutura Analítica do Projeto',
-          'cards': 'Visão em Cards dos Projetos',
+          'cards': 'Portfólio de Projetos/Ação',
           'usuarios': 'Gestão de Usuários',
           'relatorios': 'Relatórios de Auditoria (Logs)'
       };
@@ -482,6 +543,7 @@
       anexosTemporarios = [];
       etapaEmEdicaoIdx = -1;
 
+      if(page === 'resumo') renderResumoExecutivo();
       if(page === 'dashboard') renderDashboard();
       if(page === 'nova') renderNovaDemanda();
       if(page === 'usuarios') renderUsuarios();
@@ -495,6 +557,204 @@
         document.getElementById('modalContainer').classList.add('hidden');
         document.getElementById('modalContainer').innerHTML = '';
     };
+
+    // --- ABA: RESUMO EXECUTIVO ---
+
+    function renderResumoExecutivo() {
+        const page = document.getElementById('resumoPage');
+        const isMaster = getPerfil() === 'Master';
+
+        const avisoTabela = !tabelaResumoDisponivel ? `
+            <div class="card" style="border-left: 4px solid var(--amarelo); background: var(--amarelo-bg); margin-bottom: 20px;">
+                <strong style="color:var(--amarelo);">⚠️ Configuração pendente:</strong>
+                <span style="font-size:13px; color: var(--cinza-700);"> a tabela <code>resumo_executivo</code> não está no formato esperado (múltiplos registros). Execute o script SQL de migração fornecido.</span>
+            </div>` : '';
+
+        const cardsHtml = resumosExecutivos.map(r => {
+            const comp = Array.isArray(r.competencias) ? r.competencias : [];
+            const compHtml = comp.length > 0
+                ? comp.map(c => `<span class="tag tag-status" style="margin: 2px; font-size:10px;">${c}</span>`).join('')
+                : '<span style="color:var(--cinza-500); font-size:12px;">Nenhuma competência vinculada.</span>';
+
+            return `
+            <div class="card-projeto" style="background: white; border: 1px solid var(--cinza-200); border-radius: 8px; padding: 16px; display: flex; flex-direction: column; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">
+                <div style="flex-grow: 1;">
+                    <h4 style="margin-top:0; color:var(--azul-900); font-size:14px; margin-bottom:8px;">Competência Regimental</h4>
+                    <div style="margin-bottom: 14px;">${compHtml}</div>
+                    <div style="font-size:12px; color:var(--cinza-700); margin-bottom: 10px;">
+                        <strong style="color:var(--azul-800);">Área Responsável:</strong><br>
+                        ${r.area_responsavel && r.area_responsavel.trim() ? r.area_responsavel : '<span style="color:var(--cinza-500);">Não informado.</span>'}
+                    </div>
+                    <div style="font-size:12px; color:var(--cinza-700);">
+                        <strong style="color:var(--azul-800);">Sistema Utilizado:</strong><br>
+                        ${r.sistema_utilizado && r.sistema_utilizado.trim() ? r.sistema_utilizado : '<span style="color:var(--cinza-500);">Não informado.</span>'}
+                    </div>
+                </div>
+                <div style="display:flex; justify-content:flex-end; flex-wrap:wrap; gap:8px; border-top: 1px solid var(--cinza-200); padding-top: 12px; margin-top: 14px;">
+                    ${isMaster ? `<button class="small-btn action" onclick="abrirModalResumoExecutivo('${r.id}')">Editar</button>` : ''}
+                    ${isMaster ? `<button class="small-btn danger" onclick="excluirResumoExecutivo('${r.id}')">Excluir</button>` : ''}
+                    <button class="btn btn-secondary btn-sm" onclick="imprimirResumoExecutivo('${r.id}')">🖨️ Imprimir</button>
+                </div>
+            </div>
+            `;
+        }).join('');
+
+        page.innerHTML = `
+            ${avisoTabela}
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+                <p style="color:var(--cinza-600); font-size:13px; margin:0;">Competência Regimental (${resumosExecutivos.length} registrado(s)).</p>
+                ${isMaster ? `<button class="btn btn-primary" onclick="abrirModalResumoExecutivo()">+ Adicionar</button>` : ''}
+            </div>
+            <div id="resumoExecutivoGrid" style="display:grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap:16px;">
+                ${resumosExecutivos.length > 0 ? cardsHtml : '<div style="grid-column: 1 / -1; text-align:center; padding:40px; color:var(--cinza-500);">Nenhum Resumo Executivo cadastrado ainda.</div>'}
+            </div>
+        `;
+    }
+
+    // Abre o modal de criação (id vazio) ou edição (id preenchido) de um card de Resumo Executivo
+    window.abrirModalResumoExecutivo = function(id = null) {
+        const isMaster = getPerfil() === 'Master';
+        if (!isMaster) { toast('Acesso restrito!'); return; }
+
+        const r = id ? (resumosExecutivos.find(x => String(x.id) === String(id)) || {}) : {};
+        const competenciasSelecionadas = Array.isArray(r.competencias) ? r.competencias : [];
+
+        const modalHtml = `
+        <div class="modal-backdrop" onclick="fecharModal()">
+            <div class="modal-content" onclick="event.stopPropagation()" style="max-width: 700px;">
+                <div class="modal-header" style="color: var(--azul-900);">${id ? 'Editar' : 'Adicionar'} Resumo Executivo</div>
+                <div class="modal-body">
+                    <form id="resumoExecutivoForm" onsubmit="salvarResumoExecutivo(event, ${id ? `'${id}'` : 'null'})">
+                        <div class="form-group full">
+                            <label>Competência Regimental</label>
+                            <select id="resumoCompSelect" multiple>
+                                ${opcoes.competencias_lista.map(c => `<option value="${c}" ${competenciasSelecionadas.includes(c) ? 'selected' : ''}>${c}</option>`).join('')}
+                            </select>
+                        </div>
+                        <div class="form-group full"><label>Contextualização</label><textarea id="resumoContextualizacao" placeholder="Descreva o contexto geral...">${r.contextualizacao || ''}</textarea></div>
+                        <div class="form-group full"><label>Legislação</label><textarea id="resumoLegislacao" placeholder="Base legal aplicável...">${r.legislacao || ''}</textarea></div>
+                        <div class="form-group full"><label>Área Responsável</label><textarea id="resumoAreaResponsavel" placeholder="Área(s) responsável(eis)...">${r.area_responsavel || ''}</textarea></div>
+                        <div class="form-group full"><label>Metodologia de Gestão</label><textarea id="resumoMetodologiaGestao" placeholder="Metodologia adotada...">${r.metodologia_gestao || ''}</textarea></div>
+                        <div class="form-group full"><label>Sistema Utilizado</label><textarea id="resumoSistemaUtilizado" placeholder="Sistemas de apoio...">${r.sistema_utilizado || ''}</textarea></div>
+                        <div class="form-group full"><label>Projetos/Ações</label><textarea id="resumoProjetosAcoes" placeholder="Visão geral dos projetos/ações...">${r.projetos_acoes || ''}</textarea></div>
+                        <div class="form-group full"><label>Grandes Números</label><textarea id="resumoGrandesNumeros" placeholder="Principais números/indicadores...">${r.grandes_numeros || ''}</textarea></div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" onclick="fecharModal()">Cancelar</button>
+                            <button type="submit" class="btn btn-primary">💾 Salvar</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+        `;
+        document.getElementById('modalContainer').innerHTML = modalHtml;
+        document.getElementById('modalContainer').classList.remove('hidden');
+    };
+
+    window.salvarResumoExecutivo = async function(e, id) {
+        e.preventDefault();
+        const competencias = Array.from(document.getElementById('resumoCompSelect').selectedOptions).map(o => o.value);
+        const camposTexto = {
+            competencias,
+            contextualizacao: document.getElementById('resumoContextualizacao').value,
+            legislacao: document.getElementById('resumoLegislacao').value,
+            area_responsavel: document.getElementById('resumoAreaResponsavel').value,
+            metodologia_gestao: document.getElementById('resumoMetodologiaGestao').value,
+            sistema_utilizado: document.getElementById('resumoSistemaUtilizado').value,
+            projetos_acoes: document.getElementById('resumoProjetosAcoes').value,
+            grandes_numeros: document.getElementById('resumoGrandesNumeros').value
+        };
+
+        if (!supabaseClient || !sessaoAtual) { toast('Sessão/Supabase indisponível.'); return; }
+
+        if (id) {
+            const payload = { ...camposTexto, atualizado_por: sessaoAtual.user.id, atualizado_em: new Date().toISOString() };
+            const { data, error } = await supabaseClient.from('resumo_executivo').update(payload).eq('id', id).select().single();
+            if (error) { toast(`Falha ao salvar: ${error.message}`); return; }
+            const idx = resumosExecutivos.findIndex(x => String(x.id) === String(id));
+            if (idx > -1) resumosExecutivos[idx] = data;
+            registrarLog('Edição', 'Card de Resumo Executivo atualizado.');
+            toast('Resumo Executivo atualizado com sucesso!');
+        } else {
+            const payload = { ...camposTexto, criado_por: sessaoAtual.user.id, criado_em: new Date().toISOString(), atualizado_por: sessaoAtual.user.id, atualizado_em: new Date().toISOString() };
+            const { data, error } = await supabaseClient.from('resumo_executivo').insert([payload]).select().single();
+            if (error) { toast(`Falha ao cadastrar: ${error.message}`); return; }
+            resumosExecutivos.unshift(data);
+            registrarLog('Criação', 'Novo card de Resumo Executivo cadastrado.');
+            toast('Resumo Executivo cadastrado com sucesso!');
+        }
+        fecharModal();
+        renderResumoExecutivo();
+    };
+
+    window.excluirResumoExecutivo = function(id) {
+        if (getPerfil() !== 'Master') { toast('Acesso restrito!'); return; }
+        const modalHtml = `
+        <div class="modal-backdrop" onclick="fecharModal()">
+            <div class="modal-content" onclick="event.stopPropagation()">
+                <div class="modal-header" style="color: var(--vermelho)">Confirmar Exclusão</div>
+                <div class="modal-body"><p>Tem certeza que deseja excluir este card de Resumo Executivo? Esta ação não pode ser desfeita.</p></div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" onclick="fecharModal()">Cancelar</button>
+                    <button class="btn btn-danger" onclick="confirmarExclusaoResumoExecutivo('${id}')">Sim, Excluir</button>
+                </div>
+            </div>
+        </div>
+        `;
+        document.getElementById('modalContainer').innerHTML = modalHtml;
+        document.getElementById('modalContainer').classList.remove('hidden');
+    };
+
+    window.confirmarExclusaoResumoExecutivo = async function(id) {
+        if (!supabaseClient || !sessaoAtual) { toast('Supabase indisponível.'); return; }
+        const { error } = await supabaseClient.from('resumo_executivo').delete().eq('id', id);
+        if (error) { toast(`Falha ao excluir: ${error.message}`); return; }
+        resumosExecutivos = resumosExecutivos.filter(x => String(x.id) !== String(id));
+        registrarLog('Exclusão', 'Card de Resumo Executivo excluído.');
+        toast('Resumo Executivo excluído com sucesso!');
+        fecharModal();
+        renderResumoExecutivo();
+    };
+
+    window.imprimirResumoExecutivo = function(id) {
+        const r = resumosExecutivos.find(x => String(x.id) === String(id));
+        if (!r) { toast('Registro não encontrado.'); return; }
+        const compHtml = (Array.isArray(r.competencias) && r.competencias.length > 0) ? r.competencias.join(', ') : '-';
+        const bloco = (titulo, valor) => `
+            <div style="margin-bottom: 16px; page-break-inside: avoid;">
+                <h4 style="margin:0 0 6px 0; font-size:14px; color:#1e3a8a;">${titulo}</h4>
+                <p style="margin:0; font-size:13px; line-height:1.6; color:#333; background:#fff; border:1px solid #e2e8f0; padding:12px; border-radius:6px; white-space: pre-wrap;">${valor && valor.trim() ? valor : '-'}</p>
+            </div>`;
+        const html = `
+            <!DOCTYPE html><html><head><title>Resumo Executivo - SRL/SAEB</title>
+            <style>body{font-family:Arial,sans-serif;color:#333;padding:20px;} @media print{ * { -webkit-print-color-adjust:exact !important; print-color-adjust:exact !important; } body{padding:0;} }</style>
+            </head><body>
+            <div style="background:#1e3a8a; color:white; padding:24px; border-radius:8px; margin-bottom:24px;">
+                <h2 style="margin:0 0 6px 0; font-size:12px; text-transform:uppercase; color:#93c5fd;">Estado da Bahia | Secretaria da Administração | SRL</h2>
+                <h1 style="margin:0; font-size:22px;">Resumo Executivo</h1>
+            </div>
+            <div style="margin-bottom:16px;"><h4 style="margin:0 0 6px 0; font-size:14px; color:#1e3a8a;">Competência Regimental</h4><p style="font-size:13px;">${compHtml}</p></div>
+            ${bloco('Contextualização', r.contextualizacao)}
+            ${bloco('Legislação', r.legislacao)}
+            ${bloco('Área Responsável', r.area_responsavel)}
+            ${bloco('Metodologia de Gestão', r.metodologia_gestao)}
+            ${bloco('Sistema Utilizado', r.sistema_utilizado)}
+            ${bloco('Projetos/Ações', r.projetos_acoes)}
+            ${bloco('Grandes Números', r.grandes_numeros)}
+            <div style="margin-top:30px; text-align:center; font-size:10px; color:#94a3b8;">Gerado pelo Sistema de Projetos e Ações Estratégicas - SRL/SAEB em ${new Date().toLocaleString('pt-BR')}</div>
+            </body></html>`;
+        const iframe = document.createElement('iframe');
+        iframe.style.display = 'none';
+        document.body.appendChild(iframe);
+        iframe.contentDocument.write(html);
+        iframe.contentDocument.close();
+        setTimeout(() => {
+            iframe.contentWindow.focus();
+            iframe.contentWindow.print();
+            setTimeout(() => document.body.removeChild(iframe), 2000);
+        }, 300);
+    };
+
 
     window.exportarExcel = function() {
         if (!demandas || demandas.length === 0) {
@@ -799,18 +1059,37 @@
                 let btnToggle = '';
                 if(act.subAtividades && act.subAtividades.length > 0) {
                     const uid = `mod_sub_${d.id}_${idx}`;
-                    subHtml = `<div id="${uid}" class="hidden" style="margin-top: 8px;">` + act.subAtividades.map(sub => {
+                    subHtml = `<div id="${uid}" class="hidden" style="margin-top: 8px;">` + act.subAtividades.map((sub, sIdx) => {
                         const sitSub = calcularSituacaoPrazo({ status: sub.status, prazo_final: sub.prazo });
                         const subRespFormat = Array.isArray(sub.responsavel) ? sub.responsavel.join(', ') : (sub.responsavel || '-');
+
+                        let etapasHtml = '';
+                        let btnToggleEtapa = '';
+                        if(sub.etapas && sub.etapas.length > 0) {
+                            const uidEtp = `mod_etp_${d.id}_${idx}_${sIdx}`;
+                            etapasHtml = `<div id="${uidEtp}" class="hidden" style="margin-top: 6px;">` + sub.etapas.map(etp => {
+                                const etpRespFormat = Array.isArray(etp.responsavel) ? etp.responsavel.join(', ') : (etp.responsavel || '-');
+                                return `
+                                <div style="margin-top: 6px; margin-left: 16px; padding-left: 10px; border-left: 2px solid var(--azul-700);">
+                                    <strong style="font-size:12px;">⤷ ${etp.titulo}</strong> - Coordenação (oes): ${etpRespFormat} | Prazo: ${formatarDataBR(etp.prazo)} | Status: ${etp.status}<br>
+                                    <small style="color: var(--cinza-600);">${etp.obs || 'Sem observações'}</small>
+                                </div>
+                                `;
+                            }).join('') + `</div>`;
+                            btnToggleEtapa = `<button class="small-btn" style="margin-top: 4px; font-size: 9px;" data-label="Etapas" onclick="toggleSubVerMais('${uidEtp}', this, 'Etapas')">Ver Etapas (▼)</button>`;
+                        }
+
                         return `
                         <div style="margin-top: 8px; margin-left: 16px; padding-left: 10px; border-left: 2px solid var(--cinza-300);">
                             <strong>↳ ${sub.titulo}</strong> - Coordenação (oes): ${subRespFormat} | Prazo: ${formatarDataBR(sub.prazo)} | Status: ${sub.status}<br>
-                            <small style="color: var(--cinza-600);">${sub.obs || 'Sem observações'}</small>
+                            <small style="color: var(--cinza-600);">${sub.obs || 'Sem observações'}</small><br>
+                            ${btnToggleEtapa}
+                            ${etapasHtml}
                         </div>
                         `;
                     }).join('') + `</div>`;
 
-                    btnToggle = `<button class="small-btn" style="margin-top: 6px; font-size: 10px;" onclick="toggleSubVerMais('${uid}', this)">Ver Sub Atividades (▼)</button>`;
+                    btnToggle = `<button class="small-btn" style="margin-top: 6px; font-size: 10px;" data-label="Sub Atividades" onclick="toggleSubVerMais('${uid}', this, 'Sub Atividades')">Ver Sub Atividades (▼)</button>`;
                 }
 
                 return `
@@ -948,6 +1227,7 @@
                 <div style="display:none;"><label>Observações</label><input type="text" class="act-obs" value=""></div>
                 <div style="display:flex; gap: 5px; align-items:flex-end;">
                     ${isMaster ? `<button type="button" class="btn btn-secondary btn-sm" title="Adicionar Sub-Atividade" onclick="adicionarSubAtividadeForm('${id}')">+</button>` : ''}
+                    <button type="button" class="small-btn" title="Ocultar/Mostrar Sub-Atividades" data-label="Sub-Atividades" onclick="toggleSubVerMais('sub_list_${id}', this, 'Sub-Atividades')">Ver Sub-Atividades (▼)</button>
                     ${isMaster ? `<button type="button" class="btn btn-danger btn-sm" title="Remover Atividade" onclick="this.closest('.atividade-container-master').remove()">X</button>` : ''}
                 </div>
             </div>
@@ -986,24 +1266,107 @@
         if(!coordOptionsHtml) coordOptionsHtml = '<div style="font-size:11px; color:var(--cinza-500); padding: 5px;">Selecione a(s) Coordenação(ões) acima</div>';
 
         const div = document.createElement('div');
-        div.className = 'sub-atividade-form-row';
+        div.className = 'sub-atividade-wrapper';
         div.id = subId;
         div.innerHTML = `
-            <div><label>Título da Sub-Atividade</label><input type="text" class="sub-titulo" required placeholder="Título..." value="${tit}" ${disabledAttr}></div>
-            <div>
-                <label>Coordenação(ões) Responsável(eis)</label>
-                <div id="dd_${subId}" class="dropdown-check-list sub-dropdown">
-                    <span class="anchor" onclick="toggleDropdown(this)">Selecione...</span>
-                    <div class="items sub-resp-group">${coordOptionsHtml}</div>
+            <div class="sub-atividade-form-row">
+                <div><label>Título da Sub-Atividade</label><input type="text" class="sub-titulo" required placeholder="Título..." value="${tit}" ${disabledAttr}></div>
+                <div>
+                    <label>Coordenação(ões) Responsável(eis)</label>
+                    <div id="dd_${subId}" class="dropdown-check-list sub-dropdown">
+                        <span class="anchor" onclick="toggleDropdown(this)">Selecione...</span>
+                        <div class="items sub-resp-group">${coordOptionsHtml}</div>
+                    </div>
+                </div>
+                <div><label>Prazo</label><input type="date" class="sub-prazo" required value="${prz}" ${disabledAttr}></div>
+                <div><label>Status</label><select class="sub-status">${opcoes.status.map(s => `<option value="${s}" ${sts === s ? 'selected' : ''}>${s}</option>`).join('')}</select></div>
+                <div><label>Observações</label><input type="text" class="sub-obs" placeholder="Detalhes..." value="${obs}" maxlength="2000" ${disabledAttr}></div>
+                <div style="display:flex; gap:5px; align-items:flex-end;">
+                    <button type="button" class="btn btn-secondary btn-sm" title="Adicionar Etapa" onclick="adicionarEtapaSubForm('${subId}')">+</button>
+                    <button type="button" class="small-btn" title="Ocultar/Mostrar Etapas" data-label="Etapas" onclick="toggleSubVerMais('etapas_list_${subId}', this, 'Etapas')">Ver Etapas (▼)</button>
+                    ${isMaster ? `<button type="button" class="btn btn-danger btn-sm" onclick="document.getElementById('${subId}').remove()">X</button>` : ''}
                 </div>
             </div>
-            <div><label>Prazo</label><input type="date" class="sub-prazo" required value="${prz}" ${disabledAttr}></div>
-            <div><label>Status</label><select class="sub-status">${opcoes.status.map(s => `<option value="${s}" ${sts === s ? 'selected' : ''}>${s}</option>`).join('')}</select></div>
-            <div><label>Observações</label><input type="text" class="sub-obs" placeholder="Detalhes..." value="${obs}" maxlength="2000" ${disabledAttr}></div>
-            ${isMaster ? `<div><button type="button" class="btn btn-danger btn-sm" onclick="document.getElementById('${subId}').remove()">X</button></div>` : ''}
+            <div class="etapas-container" id="etapas_list_${subId}"></div>
         `;
         container.appendChild(div);
         updateDropdownText(`dd_${subId}`);
+
+        if(subAct && subAct.etapas && subAct.etapas.length > 0) {
+            subAct.etapas.forEach(etp => window.adicionarEtapaSubForm(subId, etp));
+        }
+    };
+
+    window.adicionarEtapaSubForm = function(subId, etapa = null) {
+        const container = document.getElementById(`etapas_list_${subId}`);
+        if(!container) return;
+
+        const isMaster = getPerfil() === 'Master';
+        const disabledAttr = isMaster ? '' : 'disabled';
+        const etpId = `etp_${Math.random().toString(36).substr(2, 9)}`;
+
+        const tit = etapa ? etapa.titulo : '';
+        const resp = etapa ? etapa.responsavel : [];
+        const prz = etapa ? etapa.prazo : hojeISO();
+        const sts = etapa ? etapa.status : 'A iniciar';
+        const obs = etapa ? etapa.obs : '';
+
+        const coordSelect = document.getElementById('coordSelect');
+        let coordOptionsHtml = '';
+        if(coordSelect) {
+            Array.from(coordSelect.selectedOptions).forEach(opt => {
+                const isSelected = Array.isArray(resp) ? resp.includes(opt.value) : (resp === opt.value);
+                coordOptionsHtml += `<label><input type="checkbox" value="${opt.value}" class="etp-resp-check" ${isSelected ? 'checked' : ''} ${disabledAttr} onchange="updateDropdownText('dd_${etpId}')"> ${opt.value}</label>`;
+            });
+        }
+        if(!coordOptionsHtml) coordOptionsHtml = '<div style="font-size:11px; color:var(--cinza-500); padding: 5px;">Selecione a(s) Coordenação(ões) acima</div>';
+
+        const div = document.createElement('div');
+        div.className = 'etapa-form-row';
+        div.id = etpId;
+        div.innerHTML = `
+            <div><label>Título da Etapa</label><input type="text" class="etp-titulo" required placeholder="Título da etapa..." value="${tit}" ${disabledAttr}></div>
+            <div>
+                <label>Coordenação(ões) Responsável(eis)</label>
+                <div id="dd_${etpId}" class="dropdown-check-list etp-dropdown">
+                    <span class="anchor" onclick="toggleDropdown(this)">Selecione...</span>
+                    <div class="items etp-resp-group">${coordOptionsHtml}</div>
+                </div>
+            </div>
+            <div><label>Prazo</label><input type="date" class="etp-prazo" required value="${prz}" ${disabledAttr}></div>
+            <div><label>Status</label><select class="etp-status">${opcoes.status.map(s => `<option value="${s}" ${sts === s ? 'selected' : ''}>${s}</option>`).join('')}</select></div>
+            <div><label>Observações</label><input type="text" class="etp-obs" placeholder="Detalhes..." value="${obs}" maxlength="2000" ${disabledAttr}></div>
+            ${isMaster ? `<div><button type="button" class="btn btn-danger btn-sm" onclick="document.getElementById('${etpId}').remove()">X</button></div>` : ''}
+        `;
+        container.appendChild(div);
+        updateDropdownText(`dd_${etpId}`);
+    };
+
+    
+    window.cadastrarNovaVinculacao = async function() {
+        const input = document.getElementById('novaVinculacaoInput');
+        const nome = input.value.trim();
+        if(!nome) { toast('Digite um nome para a nova vinculação.'); return; }
+        if (!supabaseClient || !sessaoAtual) { toast('Supabase indisponível.'); return; }
+        const { data, error } = await supabaseClient.from('opcoes_vinculacao').insert([{ nome, criado_por: sessaoAtual.user.id }]).select().single();
+        if (error) {
+            toast(`Falha ao cadastrar vinculação: ${error.message}`);
+            return;
+        }
+        opcoesVinculacao.push(data);
+        const select = document.getElementById('vincSelect');
+        const opt = document.createElement('option');
+        opt.value = data.nome; opt.text = data.nome; opt.selected = true;
+        select.appendChild(opt);
+        input.value = '';
+        toast('Vinculação cadastrada e selecionada!');
+    };
+
+    window.limparFormularioNovaDemanda = function() {
+        demandaEditandoId = null;
+        anexosTemporarios = [];
+        renderNovaDemanda();
+        toast('Formulário limpo.');
     };
 
     function renderNovaDemanda() {
@@ -1014,7 +1377,7 @@
       atividadeCount = 0;
       anexosTemporarios = []; // Reinicia lista de arquivos locais
 
-      let d = { titulo: '', objetivo: '', justificativa: '', resultados: '', valor_estimado: '', processo_sei: '', diretoria: [], coordenacao: [], tipo_demanda: 'Projeto', status: 'A iniciar', data_abertura: hojeISO(), prazo_final: hojeISO(), destaque: false, atividades: [], competencias: [], objetivos_estrategicos: [], responsavel: '', prioridade: 'Média', descricao: '', parceiros_externos: '', planejamento: '', anexos: [] };
+      let d = { titulo: '', objetivo: '', justificativa: '', resultados: '', valor_estimado: '', processo_sei: '', diretoria: [], coordenacao: [], tipo_demanda: 'Projeto', tipo_iniciativa: '', vinculacao: [], status: 'A iniciar', data_abertura: hojeISO(), prazo_final: hojeISO(), destaque: false, atividades: [], competencias: [], objetivos_estrategicos: [], responsavel: '', prioridade: 'Média', descricao: '', parceiros_externos: '', planejamento: '', anexos: [] };
       let isEdit = false;
 
       if(demandaEditandoId) {
@@ -1025,6 +1388,7 @@
               if(!Array.isArray(d.coordenacao)) d.coordenacao = d.coordenacao ? [d.coordenacao] : [];
               if(!Array.isArray(d.competencias)) d.competencias = [];
               if(!Array.isArray(d.objetivos_estrategicos)) d.objetivos_estrategicos = [];
+              if(!Array.isArray(d.vinculacao)) d.vinculacao = [];
               if(!d.atividades) d.atividades = [];
               if(d.anexos) anexosTemporarios = [...d.anexos];
               isEdit = true;
@@ -1040,6 +1404,11 @@
               <div class="form-group full"><label>Nome Projeto/Ação Estratégica *</label><input name="titulo" required value="${d.titulo}" placeholder="Ex.: Ajuste no fluxo do Comprasnet" ${disabledAttr}/></div>
               
               <div class="form-group full"><label>Tipo de Projeto/Ação Estratégica *</label><select name="tipo_demanda" required ${disabledAttr}>${opcoes.tipos.map(t => `<option value="${t}" ${d.tipo_demanda === t ? 'selected' : ''}>${t}</option>`).join('')}</select></div>
+
+              <div class="form-group full"><label>Tipo (opcional)</label><select name="tipo_iniciativa" ${disabledAttr}><option value="">Selecione...</option>${opcoes.tipo_iniciativa.map(t => `<option value="${t}" ${d.tipo_iniciativa === t ? 'selected' : ''}>${t}</option>`).join('')}</select></div>
+
+                <!-- Campo "Vinculação" removido temporariamente da tela (a pedido, 04/09/2026).
+                d.vinculacao é preservado internamente para reativação futura sem perda de dados. -->
 
               <div class="form-group full">
                 <label>Competência Regimental* (Decreto Estadual nº 21.451/2022)</label>
@@ -1090,7 +1459,10 @@
             </div>
             
             <div class="form-group full">
-                <h4 style="margin-top: 20px; color: var(--azul-900); border-bottom: 1px solid var(--cinza-200); padding-bottom: 8px;">Atividades Vinculadas</h4>
+                <h4 style="margin-top: 20px; color: var(--azul-900); border-bottom: 1px solid var(--cinza-200); padding-bottom: 8px; display:flex; justify-content:space-between; align-items:center;">
+                    <span>Atividades Vinculadas</span>
+                    <button type="button" class="small-btn" data-label="Atividades" onclick="toggleSubVerMais('atividadesFormList', this, 'Atividades')">Ocultar Atividades (▲)</button>
+                </h4>
                 <div class="atividades-form-container">
                     <div id="atividadesFormList"></div>
                     ${isMaster ? `<button type="button" class="btn btn-secondary btn-sm" onclick="adicionarAtividadeForm()">+ Adicionar Atividade</button>` : ''}
@@ -1098,8 +1470,9 @@
             </div>
             <div style="margin-top:20px; display:flex; gap:10px;">
                 <button type="submit" class="btn btn-primary">${isEdit ? 'Salvar Alterações' : 'Cadastrar Projeto/Ação Estratégica*'}</button>
-                ${isEdit ? `<button type="button" class="btn btn-secondary" onclick="demandaEditandoId=null; navegar('gestao')">Cancelar</button>` : ''}
+                <button type="button" class="btn btn-secondary" onclick="limparFormularioNovaDemanda()">${isEdit ? '🔄 Cancelar Edição / Novo Cadastro' : '🧹 Limpar Campos'}</button>
             </div>
+            
           </form>
         </div>
       `;
@@ -1152,14 +1525,30 @@
             if(!linha) return;
             
             const subAtvs = [];
-            containerAtv.querySelectorAll('.sub-atividade-form-row').forEach(subLinha => {
+            containerAtv.querySelectorAll('.sub-atividade-wrapper').forEach(subWrapper => {
+                const subLinha = subWrapper.querySelector('.sub-atividade-form-row');
+                if(!subLinha) return;
                 const subResps = Array.from(subLinha.querySelectorAll('.sub-resp-check:checked')).map(cb => cb.value);
+
+                const etapas = [];
+                subWrapper.querySelectorAll('.etapa-form-row').forEach(etpLinha => {
+                    const etpResps = Array.from(etpLinha.querySelectorAll('.etp-resp-check:checked')).map(cb => cb.value);
+                    etapas.push({
+                        titulo: etpLinha.querySelector('.etp-titulo').value,
+                        responsavel: etpResps,
+                        prazo: etpLinha.querySelector('.etp-prazo').value,
+                        status: etpLinha.querySelector('.etp-status').value,
+                        obs: etpLinha.querySelector('.etp-obs').value
+                    });
+                });
+
                 subAtvs.push({
                     titulo: subLinha.querySelector('.sub-titulo').value,
                     responsavel: subResps,
                     prazo: subLinha.querySelector('.sub-prazo').value,
                     status: subLinha.querySelector('.sub-status').value,
-                    obs: subLinha.querySelector('.sub-obs').value
+                    obs: subLinha.querySelector('.sub-obs').value,
+                    etapas: etapas
                 });
             });
 
@@ -1185,6 +1574,9 @@
             idDemanda = demandaEditandoId;
             const index = demandas.findIndex(x => String(x.id) === String(demandaEditandoId));
             if(index > -1) {
+                if(JSON.stringify(demandas[index].atividades || []) !== JSON.stringify(listaAtv)) {
+                    demandas[index].atualizado_atividades_em = new Date().toISOString();
+                }
                 demandas[index].atividades = listaAtv;
                 if(isAllCompleted) demandas[index].status = 'Em Análise SRL';
 
@@ -1206,6 +1598,16 @@
             
             const objEstSelects = document.getElementById('objEstSelect').selectedOptions;
             dados.objetivos_estrategicos = Array.from(objEstSelects).map(opt => opt.value);
+
+            // Campo "Vinculação" removido temporariamente da tela; preserva o valor já existente do projeto (se houver)
+            dados.vinculacao = d.vinculacao || [];
+
+            const atividadesAnteriores = isEdit ? (demandas.find(x => String(x.id) === String(demandaEditandoId))?.atividades || []) : [];
+            if(JSON.stringify(atividadesAnteriores) !== JSON.stringify(listaAtv)) {
+                dados.atualizado_atividades_em = new Date().toISOString();
+            } else {
+                dados.atualizado_atividades_em = d.atualizado_atividades_em || null;
+            }
 
             dados.atividades = listaAtv;
             idDemanda = isEdit ? demandaEditandoId : Date.now();
@@ -1767,14 +2169,17 @@
         }
     };
 
-    window.toggleSubVerMais = function(uid, btn) {
+    window.toggleSubVerMais = function(uid, btn, label) {
         const p = document.getElementById(uid);
+        if(!p) return;
+        const rotulo = label || (btn && btn.dataset.label) || 'Sub Atividades';
+        if(btn) btn.dataset.label = rotulo;
         if (p.classList.contains('hidden')) {
             p.classList.remove('hidden');
-            if(btn) btn.innerText = 'Ocultar Sub Atividades (▲)';
+            if(btn) btn.innerText = `Ocultar ${rotulo} (▲)`;
         } else {
             p.classList.add('hidden');
-            if(btn) btn.innerText = 'Ver Sub Atividades (▼)';
+            if(btn) btn.innerText = `Ver ${rotulo} (▼)`;
         }
     };
 
@@ -1840,13 +2245,39 @@
                     let btnToggle = '';
                     if(act.subAtividades && act.subAtividades.length > 0) {
                         const uid = `card_sub_${d.id}_${idx}`;
-                        subHtml = `<div id="${uid}" class="hidden" style="margin-top: 8px; padding-top: 4px; border-top: 1px dashed var(--cinza-200);">` + act.subAtividades.map(sub => {
+                        subHtml = `<div id="${uid}" class="hidden" style="margin-top: 8px; padding-top: 4px; border-top: 1px dashed var(--cinza-200);">` + act.subAtividades.map((sub, sIdx) => {
                             const sitSub = calcularSituacaoPrazo({ status: sub.status, prazo_final: sub.prazo });
                             let sitSubClass = 'tag-status';
                             if(sitSub === 'Concluído' || sitSub === 'Concluída') sitSubClass = 'tag-concluida';
                             else if (sitSub === 'Atrasada') sitSubClass = 'tag-atrasada';
                             
                             const subRespFormat = Array.isArray(sub.responsavel) ? sub.responsavel.join(', ') : (sub.responsavel || '-');
+
+                            let etapasHtml = '';
+                            let btnToggleEtapa = '';
+                            if(sub.etapas && sub.etapas.length > 0) {
+                                const uidEtp = `card_etp_${d.id}_${idx}_${sIdx}`;
+                                etapasHtml = `<div id="${uidEtp}" class="hidden" style="margin-top: 6px;">` + sub.etapas.map(etp => {
+                                    const sitEtp = calcularSituacaoPrazo({ status: etp.status, prazo_final: etp.prazo });
+                                    let sitEtpClass = 'tag-status';
+                                    if(sitEtp === 'Concluído' || sitEtp === 'Concluída') sitEtpClass = 'tag-concluida';
+                                    else if (sitEtp === 'Atrasada') sitEtpClass = 'tag-atrasada';
+                                    const etpRespFormat = Array.isArray(etp.responsavel) ? etp.responsavel.join(', ') : (etp.responsavel || '-');
+                                    return `
+                                    <div style="margin-top: 6px; margin-left: 12px; padding: 6px 8px; border-left: 2px solid var(--azul-700); background: var(--azul-100); border-radius: 4px;">
+                                        <div style="display:flex; justify-content:space-between; margin-bottom: 4px;">
+                                            <strong style="font-size:11px;">⤷ ${etp.titulo}</strong>
+                                            <span class="tag ${sitEtpClass}" style="font-size:9px;">${etp.status}</span>
+                                        </div>
+                                        <div style="font-size:10px; color:var(--cinza-600);">
+                                            Coordenação (oes): ${etpRespFormat} | Prazo: <strong>${formatarDataBR(etp.prazo)}</strong> <br>
+                                            ${etp.obs ? `Obs: <em>${etp.obs}</em>` : ''}
+                                        </div>
+                                    </div>
+                                    `;
+                                }).join('') + `</div>`;
+                                btnToggleEtapa = `<button class="small-btn" style="font-size: 9px; margin-top:4px;" data-label="Etapas" onclick="toggleSubVerMais('${uidEtp}', this, 'Etapas')">Ver Etapas (▼)</button>`;
+                            }
 
                             return `
                             <div style="margin-top: 6px; margin-left: 12px; padding: 8px; border-left: 2px solid var(--cinza-300); background: var(--branco); border-radius: 4px;">
@@ -1858,11 +2289,13 @@
                                     Coordenação (oes): ${subRespFormat} | Prazo: <strong>${formatarDataBR(sub.prazo)}</strong> <br>
                                     ${sub.obs ? `Obs: <em>${sub.obs}</em>` : ''}
                                 </div>
+                                ${btnToggleEtapa}
+                                ${etapasHtml}
                             </div>
                             `;
                         }).join('') + `</div>`;
 
-                        btnToggle = `<div style="margin-top: 6px;"><button class="small-btn" style="font-size: 10px;" onclick="toggleSubVerMais('${uid}', this)">Ver Sub Atividades (▼)</button></div>`;
+                        btnToggle = `<div style="margin-top: 6px;"><button class="small-btn" style="font-size: 10px;" data-label="Sub Atividades" onclick="toggleSubVerMais('${uid}', this, 'Sub Atividades')">Ver Sub Atividades (▼)</button></div>`;
                     }
 
                     return `
@@ -2467,15 +2900,24 @@
             secoesArray.forEach(secao => {
                 const { nomeComp, listaDemandas } = secao;
 
+                const isMasterCards = getPerfil() === 'Master';
+
                 const cardsHtml = listaDemandas.map(d => {
                     let passosHtml = '';
                     if (d.atividades && d.atividades.length > 0) {
                         passosHtml = d.atividades.map((at, i) => {
                             const tituloEscapado = at.titulo ? at.titulo.replace(/"/g, '&quot;') : 'Sem título';
+                            const sitAt = calcularSituacaoPrazo({ status: at.status, prazo_final: at.prazo });
+                            let sitAtClass = 'tag-status';
+                            if(sitAt === 'Concluído' || sitAt === 'Concluída') sitAtClass = 'tag-concluida';
+                            else if (sitAt === 'Atrasada') sitAtClass = 'tag-atrasada';
+                            else if (sitAt === 'Pausado') sitAtClass = 'tag-media';
                             return `
                             <div style="font-size: 11px; padding: 6px; border-bottom: 1px solid var(--cinza-200); display: flex; justify-content: space-between; align-items: flex-start; gap: 8px;">
                                 <div style="flex: 1;">
-                                    <strong style="color: var(--azul-900);">Ativ ${i+1}:</strong> ${tituloEscapado} 
+                                    <strong style="color: var(--azul-900);">Ativ ${i+1}:</strong> ${tituloEscapado} <br>
+                                    <span style="color: var(--cinza-600);">Prazo: <strong>${formatarDataBR(at.prazo)}</strong></span>
+                                    <span class="tag ${sitAtClass}" style="font-size:9px; margin-left:4px; padding:2px 6px;">${sitAt}</span>
                                 </div>
                                 <span style="white-space: nowrap; font-weight: bold; color: ${at.status === 'Concluído' || at.status === 'Concluída' ? 'var(--verde)' : 'var(--cinza-600)'}">${at.status || 'A iniciar'}</span>
                             </div>
@@ -2485,16 +2927,35 @@
                         passosHtml = '<div style="font-size: 11px; color: var(--cinza-500); padding: 5px;">Nenhuma atividade cadastrada.</div>';
                     }
 
+                    // Indicador visual: atividades atualizadas nos últimos 7 dias + confirmação de visualização por usuário
+                    const seteDiaMs = 7 * 24 * 60 * 60 * 1000;
+                    const foiAtualizadoRecente = !!d.atualizado_atividades_em && (Date.now() - new Date(d.atualizado_atividades_em).getTime()) <= seteDiaMs;
+                    const confirmadoEm = visualizacoesCard[String(d.id)];
+                    const precisaConfirmar = foiAtualizadoRecente && (!confirmadoEm || new Date(confirmadoEm) < new Date(d.atualizado_atividades_em));
+                    const badgeAtualizado = precisaConfirmar ? `
+                        <div class="badge-atualizado">🆕 Atualizado em ${formatarDataBR(d.atualizado_atividades_em.slice(0,10))}</div>
+                        ${tabelaVisualizacaoDisponivel ? `<button class="small-btn success" style="margin-bottom:8px; display:block;" onclick="confirmarVisualizacaoCard('${d.id}')">✅ Confirmar visualização</button>` : ''}
+                    ` : (foiAtualizadoRecente ? `<div class="badge-atualizado" style="background: var(--verde-bg); color: var(--verde);">✅ Visualização confirmada</div>` : '');
+
+                    // Badge simples e sempre visível com a data da última atualização (independe dos 7 dias)
+                    const dataUltimaAtualizacaoFmt = d.atualizado_atividades_em
+                        ? formatarDataBR(d.atualizado_atividades_em.slice(0,10))
+                        : formatarDataBR(d.data_abertura);
+                    const badgeUltimaAtualizacao = `<div class="badge-ultima-atualizacao">🕒 Última atualização: ${dataUltimaAtualizacaoFmt}</div>`;
+
                     return `
-                    <div class="card-projeto" id="print-card-${d.id}" style="background: white; border: 1px solid var(--cinza-200); border-radius: 8px; padding: 16px; display: flex; flex-direction: column; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">
+                    <div class="card-projeto ${precisaConfirmar ? 'card-atualizado-recente' : ''}" id="print-card-${d.id}" style="background: white; border: 1px solid var(--cinza-200); border-radius: 8px; padding: 16px; display: flex; flex-direction: column; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">
                         <div style="flex-grow: 1;">
+                            ${badgeUltimaAtualizacao}
+                            ${badgeAtualizado}
                             <h4 style="margin-top: 0; color: var(--azul-900); font-size: 15px; margin-bottom: 8px; line-height: 1.3;">
                                 ${d.destaque ? '⭐ ' : ''}${d.titulo}
                             </h4>
                             <div style="font-size: 12px; color: var(--cinza-600); margin-bottom: 12px;">
                                 <strong>Tipo:</strong> ${d.tipo_demanda || '-'} <br>
                                 <strong>Status:</strong> ${d.status || '-'} <br>
-                                <strong>Diretoria:</strong> ${Array.isArray(d.diretoria) ? d.diretoria.join(', ') : d.diretoria || '-'}
+                                <strong>Diretoria:</strong> ${Array.isArray(d.diretoria) ? d.diretoria.join(', ') : d.diretoria || '-'} <br>
+                                <strong>Prazo Fim Estimado:</strong> ${formatarDataBR(d.prazo_final)}
                             </div>
                             <div style="background: var(--cinza-100); padding: 8px; border-radius: 4px; margin-bottom: 16px;">
                                 <strong style="font-size: 12px; color: var(--azul-800); display: block; margin-bottom: 6px;">Atividades Principais:</strong>
@@ -2503,8 +2964,10 @@
                                 </div>
                             </div>
                         </div>
-                        <div style="text-align: right; border-top: 1px solid var(--cinza-200); padding-top: 12px;" class="no-print">
-                            <button class="btn btn-secondary btn-sm" onclick="imprimirRelatorio('${d.id}')">🖨️ Salvar/Imprimir</button>
+                        <div style="display:flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; border-top: 1px solid var(--cinza-200); padding-top: 12px;" class="no-print">
+                            <button class="small-btn" onclick="verDemanda('${d.id}')">Resumo</button>
+                            <button class="small-btn action" onclick="editarDemanda('${d.id}')">${isMasterCards ? 'Editar' : 'Atualizar Ativ.'}</button>
+                            <button class="btn btn-secondary btn-sm" onclick="imprimirRelatorio('${d.id}')">🖨️ Imprimir</button>
                         </div>
                     </div>
                     `;
@@ -2566,6 +3029,24 @@
         // Renderiza a primeira vez ao abrir a tela
         window._atualizarGridCards();
     }
+
+    // Confirmação de visualização de card com atividades atualizadas recentemente (requer tabela visualizacoes_card)
+    window.confirmarVisualizacaoCard = async function(id) {
+        if (!supabaseClient || !sessaoAtual) { toast('Supabase indisponível.'); return; }
+        const agora = new Date().toISOString();
+        const { error } = await supabaseClient.from('visualizacoes_card').upsert({
+            user_id: sessaoAtual.user.id,
+            demanda_id: id,
+            confirmado_em: agora
+        }, { onConflict: 'user_id,demanda_id' });
+        if (error) {
+            toast(`Falha ao confirmar visualização: ${error.message}`);
+            return;
+        }
+        visualizacoesCard[String(id)] = agora;
+        toast('Visualização confirmada!');
+        if(window._atualizarGridCards) window._atualizarGridCards();
+    };
 
     window.imprimirRelatorio = function(id) {
             const d = demandas.find(x => String(x.id) === String(id));
