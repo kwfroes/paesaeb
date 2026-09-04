@@ -257,7 +257,7 @@
 
     const opcoes = {
       diretorias: ['DSL', 'DM', 'DS', 'COE', 'ASS'],
-      coordenacoes: ['CGSA', 'CGCF', 'CPRF', 'CGC', 'CMP', 'CSA', 'CST', 'CSCCAB', 'NPD', 'EXEC', 'ASS'],
+      coordenacoes: ['CGSA', 'CGCF', 'CPRF', 'CGC', 'CMP', 'CSA', 'CST', 'CSCCAB', 'NPD', 'EXEC', 'COE', 'ASS'],
       tipos: ['Projeto', 'Ação Estratégica'],
       tipo_iniciativa: ['Melhoria', 'Inovação'],
       prioridades: ['Baixa', 'Média', 'Alta', 'Crítica'],
@@ -1574,9 +1574,8 @@
             idDemanda = demandaEditandoId;
             const index = demandas.findIndex(x => String(x.id) === String(demandaEditandoId));
             if(index > -1) {
-                if(JSON.stringify(demandas[index].atividades || []) !== JSON.stringify(listaAtv)) {
-                    demandas[index].atualizado_atividades_em = new Date().toISOString();
-                }
+                // Qualquer salvamento (mesmo sem alterar nada) atualiza o carimbo de última atualização
+                demandas[index].atualizado_atividades_em = new Date().toISOString();
                 demandas[index].atividades = listaAtv;
                 if(isAllCompleted) demandas[index].status = 'Em Análise SRL';
 
@@ -1602,12 +1601,8 @@
             // Campo "Vinculação" removido temporariamente da tela; preserva o valor já existente do projeto (se houver)
             dados.vinculacao = d.vinculacao || [];
 
-            const atividadesAnteriores = isEdit ? (demandas.find(x => String(x.id) === String(demandaEditandoId))?.atividades || []) : [];
-            if(JSON.stringify(atividadesAnteriores) !== JSON.stringify(listaAtv)) {
-                dados.atualizado_atividades_em = new Date().toISOString();
-            } else {
-                dados.atualizado_atividades_em = d.atualizado_atividades_em || null;
-            }
+            // Qualquer salvamento (criação ou edição de qualquer campo) atualiza o carimbo de última atualização
+            dados.atualizado_atividades_em = new Date().toISOString();
 
             dados.atividades = listaAtv;
             idDemanda = isEdit ? demandaEditandoId : Date.now();
@@ -2932,15 +2927,15 @@
                     const foiAtualizadoRecente = !!d.atualizado_atividades_em && (Date.now() - new Date(d.atualizado_atividades_em).getTime()) <= seteDiaMs;
                     const confirmadoEm = visualizacoesCard[String(d.id)];
                     const precisaConfirmar = foiAtualizadoRecente && (!confirmadoEm || new Date(confirmadoEm) < new Date(d.atualizado_atividades_em));
-                    const badgeAtualizado = precisaConfirmar ? `
-                        <div class="badge-atualizado">🆕 Atualizado em ${formatarDataBR(d.atualizado_atividades_em.slice(0,10))}</div>
-                        ${tabelaVisualizacaoDisponivel ? `<button class="small-btn success" style="margin-bottom:8px; display:block;" onclick="confirmarVisualizacaoCard('${d.id}')">✅ Confirmar visualização</button>` : ''}
-                    ` : (foiAtualizadoRecente ? `<div class="badge-atualizado" style="background: var(--verde-bg); color: var(--verde);">✅ Visualização confirmada</div>` : '');
+      
+                    const badgeAtualizado = precisaConfirmar
+                        ? (tabelaVisualizacaoDisponivel ? `<button class="small-btn success" style="margin-bottom:8px; display:block;" onclick="confirmarVisualizacaoCard('${d.id}')">✅ Confirmar visualização</button>` : '')
+                        : (foiAtualizadoRecente ? `<div class="badge-atualizado" style="background: var(--verde-bg); color: var(--verde);">✅ Visualização confirmada</div>` : '');
 
                     // Badge simples e sempre visível com a data da última atualização (independe dos 7 dias)
                     const dataUltimaAtualizacaoFmt = d.atualizado_atividades_em
-                        ? formatarDataBR(d.atualizado_atividades_em.slice(0,10))
-                        : formatarDataBR(d.data_abertura);
+                        ? new Date(d.atualizado_atividades_em).toLocaleDateString('pt-BR')
+                        : 'Sem registro (edite e salve para atualizar)';
                     const badgeUltimaAtualizacao = `<div class="badge-ultima-atualizacao">🕒 Última atualização: ${dataUltimaAtualizacaoFmt}</div>`;
 
                     return `
