@@ -299,6 +299,29 @@
       ]
     };
 
+    async function carregarHierarquiaOrganizacional() {
+        try {
+            const resp = await fetch('hierarquia_srl.json');
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            hierarquiaOrganizacional = await resp.json();
+
+            const diretoriasJson = hierarquiaOrganizacional?.superintendencia?.subordinados || [];
+            const novoMapa = {};
+            diretoriasJson.forEach(dir => {
+                const filhas = (dir.subordinados || []).map(c => c.sigla);
+                // Se a diretoria não tem coordenações filhas (ex: Assessoria), ela mesma
+                // vira a única opção de coordenação — igual ao comportamento legado.
+                novoMapa[dir.sigla] = filhas.length > 0 ? filhas : [dir.sigla];
+            });
+
+            opcoes.diretorias = diretoriasJson.map(d => d.sigla);
+            opcoes.coordenacoes = [...new Set(Object.values(novoMapa).flat())];
+            coordenacoesPorDiretoria = novoMapa;
+        } catch (e) {
+            console.warn('Falha ao carregar hierarquia_srl.json, mantendo listas fixas de fallback:', e.message);
+        }
+    }
+
     let demandas = [];
     let solicitacoes = [];
     let usuarios = [];
@@ -315,6 +338,8 @@
     // Variáveis temporárias anexos
     let anexosTemporarios = [];
 
+    let hierarquiaOrganizacional = null;   // conteúdo bruto do hierarquia_srl.json
+    let coordenacoesPorDiretoria = {};      // mapa: sigla da diretoria -> [siglas das coordenações filhas]
 
     let opcoesVinculacao = [];           // lista de opções cadastradas pelos usuários (tabela opcoes_vinculacao)
     let resumosExecutivos = [];          // lista de cards (tabela resumo_executivo, agora multi-registro)
@@ -1369,6 +1394,30 @@
         toast('Formulário limpo.');
     };
 
+
+    function atualizarCoordenacoesPorDiretoria(diretoriasSelecionadas, valoresJaSelecionados = []) {
+        const coordSelect = document.getElementById('coordSelect');
+        if (!coordSelect) return;
+
+        let permitidas;
+        if (diretoriasSelecionadas.length === 0) {
+            permitidas = new Set(opcoes.coordenacoes); // nenhuma diretoria selecionada: mostra todas
+        } else {
+            permitidas = new Set();
+            diretoriasSelecionadas.forEach(dirSigla => {
+                (coordenacoesPorDiretoria[dirSigla] || []).forEach(c => permitidas.add(c));
+            });
+        }
+        valoresJaSelecionados.forEach(v => permitidas.add(v));
+
+        const listaFinal = opcoes.coordenacoes.filter(c => permitidas.has(c));
+        valoresJaSelecionados.forEach(v => { if (!listaFinal.includes(v)) listaFinal.push(v); });
+
+        coordSelect.innerHTML = listaFinal.map(c =>
+            `<option value="${c}" ${valoresJaSelecionados.includes(c) ? 'selected' : ''}>${c}</option>`
+        ).join('');
+    }
+
     function renderNovaDemanda() {
       const page = document.getElementById('novaPage');
       const isMaster = getPerfil() === 'Master';
@@ -1481,10 +1530,17 @@
 
       const dirSelect = document.getElementById('dirSelect');
       const coordSelect = document.getElementById('coordSelect');
-
       if (dirSelect) {
+          // Filtra a Coordenação já na abertura do formulário (respeita diretoria(s) pré-selecionada(s) em modo edição)
+          atualizarCoordenacoesPorDiretoria(
+              Array.from(dirSelect.selectedOptions).map(opt => opt.value),
+              d.coordenacao || []
+          );
+
           dirSelect.addEventListener('change', () => {
               const selectedDirs = Array.from(dirSelect.selectedOptions).map(opt => opt.value);
+              const coordenacoesAtuais = Array.from(coordSelect.selectedOptions).map(opt => opt.value);
+              atualizarCoordenacoesPorDiretoria(selectedDirs, coordenacoesAtuais);
               document.querySelectorAll('.act-dropdown').forEach(dd => {
                   const group = dd.querySelector('.act-resp-group');
                   const currentVals = Array.from(group.querySelectorAll('.act-resp-check:checked')).map(cb => cb.value);
@@ -2710,6 +2766,7 @@
     async function iniciarSessao(session) {
       sessaoAtual = session;
       if (!session) return;
+      await carregarHierarquiaOrganizacional();
       const { data: profile, error } = await supabaseClient.from('profiles').select('*').eq('id', session.user.id).single();
       if (error || !profile) {
         toast('Perfil não encontrado. Execute o schema SQL e confirme o usuário no Supabase.');
